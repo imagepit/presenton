@@ -1007,3 +1007,16 @@ Track the public roadmap on GitHub Projects: [https://github.com/orgs/presenton/
 追加は `expected_revision`、`layout_group`、`layout`、`content` を指定し、`position` で挿入位置を選べます。IDはサーバーが発行します。削除には `expected_revision` を渡し、最後の1枚は保持します。並べ替えの `slide_ids` には全スライドIDを重複なく列挙します。各変更後の応答で新しい `edit_revision` を取得します。
 
 キーはリポジトリに保存せず、専用クライアントの保管先から読み込みます。値をログや作業項目に出力しません。
+
+## MCPによる直接編集
+
+標準のStreamable HTTPとBearer認証を使います。既存の生成・テンプレート・ファイルアップロード・ジョブ確認に加え、次の編集ツールを全生成モードで公開します。
+
+- `list_presentations` と `get_presentation` で保存済みデッキと編集版を取得
+- `create_presentation` で空の編集可能なデッキを作成
+- `get_slide` と `update_slide` で指定したデッキの1枚を取得・更新
+- `add_slide`、`delete_slide`、`reorder_slides` で構成を変更
+
+更新ツールには取得時の `expected_revision` を渡します。409になったら保存を止め、デッキを取り直して変更内容を確認します。管理APIとデッキ削除は公開対象から除外しています。
+
+`servers/fastapi/openai_spec.json` は実際のFastAPIアプリの `app.openapi()` から生成します。APIを変更した場合はこのスキーマを更新し、`python -m pytest tests/unit/test_mcp_server_auth.py tests/integration/test_slide_edit_api.py` で公開範囲と読み書きを確認します。

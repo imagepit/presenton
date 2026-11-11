@@ -466,3 +466,29 @@ def test_direct_edit_authentication_owner_scope_and_revocation(monkeypatch, tmp_
     finally:
         client.close()
         asyncio.run(engine.dispose())
+
+
+def test_mcp_reads_edits_and_preserves_first_update_on_conflict(slide_edit_client):
+    import httpx
+    from fastmcp import Client
+    import mcp_server
+    deck, slide = _seed_deck(slide_edit_client.sessions)
+    async def round_trip():
+        transport = httpx.ASGITransport(app=slide_edit_client.client.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as http:
+            server = mcp_server.create_mcp_server(http)
+            async with Client(server) as client:
+                names = {tool.name for tool in await client.list_tools()}
+                assert {"get_presentation", "get_slide", "update_slide"}.issubset(names)
+                before = await client.call_tool("get_slide", {"presentation_id": str(deck.id), "slide_id": str(slide.id)})
+                assert before.data.edit_revision == 0
+                args = {"presentation_id": str(deck.id), "slide_id": str(slide.id), "expected_revision": 0, "changes": {"speaker_note": "Saved through MCP"}}
+                saved = await client.call_tool("update_slide", args)
+                assert saved.data.edit_revision == 1
+                rejected = await client.call_tool("update_slide", {**args, "changes": {"speaker_note": "Stale"}}, raise_on_error=False)
+                assert rejected.is_error
+                assert "409" in str(rejected.content)
+                after = await client.call_tool("get_presentation", {"id": str(deck.id)})
+                assert after.data.edit_revision == 1
+                assert after.data.slides[0].speaker_note == "Saved through MCP"
+    asyncio.run(round_trip())
