@@ -2,9 +2,10 @@ import asyncio
 import uuid
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 
 from api.v1.ppt.endpoints.presentation import update_presentation_slide
+from models.sql.presentation import PresentationModel
 from models.sql.slide import SlideModel
 from tests.conftest import FakeAsyncSession
 
@@ -40,10 +41,16 @@ def test_slide_update_changes_only_mutable_slide_fields():
     incoming.speaker_note = "Updated note"
     incoming.properties = {"accent": "green"}
     incoming.ui = {"components": [{"id": "hero"}]}
-    session = FakeAsyncSession(get_results={stored.id: stored})
+    presentation = PresentationModel(id=stored.presentation, edit_revision=2)
+    session = FakeAsyncSession(get_results={stored.id: stored, presentation.id: presentation})
 
     result = asyncio.run(
-        update_presentation_slide(slide=incoming, sql_session=session)
+        update_presentation_slide(
+            slide=incoming,
+            response=Response(),
+            expected_revision=2,
+            sql_session=session,
+        )
     )
 
     assert result is stored
@@ -70,10 +77,16 @@ def test_slide_update_coerces_json_uuid_strings_before_database_lookup():
     incoming = SlideModel.model_validate_json(incoming.model_dump_json())
     assert isinstance(incoming.id, str)
     assert isinstance(incoming.presentation, str)
-    session = FakeAsyncSession(get_results={stored.id: stored})
+    presentation = PresentationModel(id=stored.presentation, edit_revision=2)
+    session = FakeAsyncSession(get_results={stored.id: stored, presentation.id: presentation})
 
     result = asyncio.run(
-        update_presentation_slide(slide=incoming, sql_session=session)
+        update_presentation_slide(
+            slide=incoming,
+            response=Response(),
+            expected_revision=2,
+            sql_session=session,
+        )
     )
 
     assert result is stored
@@ -88,7 +101,12 @@ def test_slide_update_rejects_invalid_uuid_strings():
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(
-            update_presentation_slide(slide=incoming, sql_session=session)
+            update_presentation_slide(
+                slide=incoming,
+                response=Response(),
+                expected_revision=2,
+                sql_session=session,
+            )
         )
 
     assert exc_info.value.status_code == 422
@@ -101,7 +119,12 @@ def test_slide_update_rejects_unknown_slide():
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(
-            update_presentation_slide(slide=incoming, sql_session=session)
+            update_presentation_slide(
+                slide=incoming,
+                response=Response(),
+                expected_revision=2,
+                sql_session=session,
+            )
         )
 
     assert exc_info.value.status_code == 404
@@ -115,7 +138,12 @@ def test_slide_update_rejects_presentation_mismatch():
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(
-            update_presentation_slide(slide=incoming, sql_session=session)
+            update_presentation_slide(
+                slide=incoming,
+                response=Response(),
+                expected_revision=2,
+                sql_session=session,
+            )
         )
 
     assert exc_info.value.status_code == 400

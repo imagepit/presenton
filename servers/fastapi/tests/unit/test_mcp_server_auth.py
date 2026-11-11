@@ -374,4 +374,22 @@ def test_mcp_tools_follow_presentation_generation_mode(
             server = mcp_server.create_mcp_server(client)
             return {tool.name for tool in await server.list_tools()}
 
-    assert asyncio.run(list_tool_names()) == expected_tools
+    assert asyncio.run(list_tool_names()) == expected_tools | EDITING_TOOLS
+
+
+EDITING_TOOLS = {
+    "list_presentations", "get_presentation", "create_presentation", "get_slide",
+    "update_slide", "add_slide", "delete_slide", "reorder_slides",
+}
+
+
+def test_mcp_edit_tools_publish_revision_and_exclude_administration():
+    async def list_tools():
+        async with httpx.AsyncClient(base_url="http://127.0.0.1:8000") as client:
+            server = mcp_server.create_mcp_server(client)
+            return {tool.name: tool for tool in await server.list_tools()}
+    tools = asyncio.run(list_tools())
+    assert EDITING_TOOLS.issubset(tools)
+    assert not {"delete_presentation", "create_api_key", "revoke_api_key"} & tools.keys()
+    assert set(tools["update_slide"].parameters["required"]) == {"presentation_id", "slide_id", "expected_revision", "changes"}
+    assert "# Edit an existing presentation" in mcp_server.get_mcp_instructions("both")
