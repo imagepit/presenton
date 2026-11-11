@@ -43,6 +43,7 @@ class PresentationModel(SQLModel, table=True):
             nullable=False,
         ),
     )
+    edit_revision: int = Field(default=0, nullable=False, sa_column_kwargs={"server_default": "0"})
     content: str
     n_slides: int
     language: str

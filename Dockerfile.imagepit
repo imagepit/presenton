@@ -13,7 +13,21 @@ RUN npm run build && rm -rf .next-build/cache
 
 FROM ghcr.io/presenton/presenton:v0.9.12-beta@sha256:18b7331753e133de2272db1b2ab0d92de75a8fc6c14e1dea81bb8a9edb8a4e95
 
+COPY servers/fastapi/mcp_server.py /app/servers/fastapi/mcp_server.py
+COPY servers/fastapi/openai_spec.json /app/servers/fastapi/openai_spec.json
+COPY servers/fastapi/api/main.py /app/servers/fastapi/api/main.py
 COPY servers/fastapi/constants/llm.py /app/servers/fastapi/constants/llm.py
+COPY servers/fastapi/models/slide_edit_request.py /app/servers/fastapi/models/slide_edit_request.py
+COPY servers/fastapi/api/v1/ppt/endpoints/slide.py /app/servers/fastapi/api/v1/ppt/endpoints/slide.py
+COPY servers/fastapi/api/v1/ppt/endpoints/presentation.py /app/servers/fastapi/api/v1/ppt/endpoints/presentation.py
+COPY servers/fastapi/models/sql/presentation.py /app/servers/fastapi/models/sql/presentation.py
+COPY servers/fastapi/models/presentation_with_slides.py /app/servers/fastapi/models/presentation_with_slides.py
+COPY servers/fastapi/services/database.py /app/servers/fastapi/services/database.py
+COPY servers/fastapi/services/slide_service.py /app/servers/fastapi/services/slide_service.py
+COPY servers/fastapi/services/presenton_cloud_proxy.py /app/servers/fastapi/services/presenton_cloud_proxy.py
+COPY servers/fastapi/services/presenton_cloud_persistence.py /app/servers/fastapi/services/presenton_cloud_persistence.py
+COPY servers/fastapi/migrations.py /app/servers/fastapi/migrations.py
+COPY servers/fastapi/alembic/versions/imagepit_presentation_revision.py /app/servers/fastapi/alembic/versions/imagepit_presentation_revision.py
 COPY --from=nextjs-builder /app/servers/nextjs/.next-build/standalone/ /app/servers/nextjs/
 COPY --from=nextjs-builder /app/servers/nextjs/public /app/servers/nextjs/public
 COPY --from=nextjs-builder /app/servers/nextjs/.next-build/static /app/servers/nextjs/.next-build/static

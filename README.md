@@ -1,3 +1,27 @@
+## IMAGEPITでの検証
+
+このフォークの基点は上流の [v0.9.12-beta](https://github.com/presenton/presenton/releases/tag/v0.9.12-beta)
+（`93b9dcf947f70ae107b779b51dd3c491e736748a`）です。
+派生ブランチへのPRでは、上流と同じリポジトリ検査、FastAPI、Next.js、Cypressを
+GitHub Actionsの「Test All Applications」で実行します。
+
+編集PoCを含む派生版をローカルで確認するには、対象コミットをチェックアウトして実行します。
+
+```sh
+docker buildx build --platform linux/amd64 -f Dockerfile.imagepit \
+  -t presenton:verify --load .
+docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' presenton:verify
+docker volume create presenton-verify
+docker run --rm --platform linux/amd64 --name presenton-verify \
+  -p 127.0.0.1:18080:80 -v presenton-verify:/app_data \
+  -e DISABLE_AUTH=false -e MIGRATE_DATABASE_ON_STARTUP=true \
+  -e DISABLE_ANONYMOUS_TRACKING=true presenton:verify
+```
+
+ブラウザで `http://localhost:18080` を開き、検証用の管理者を設定します。
+デッキを作成・保存してコンテナを停止し、同じボリュームで起動してデッキを開き直します。
+検証結果にはソースのコミットとイメージIDを残します。
+
 <p align="center">
   <img src="./readme_assets/images/logo.png" alt="Presenton" />
 </p>
@@ -977,3 +1001,46 @@ Prepend your server’s root URL to <code>path</code> and
 ### 🚀 Roadmap
 
 Track the public roadmap on GitHub Projects: [https://github.com/orgs/presenton/projects/2](https://github.com/orgs/presenton/projects/2)
+
+## IMAGEPITの編集版と競合処理
+
+デッキ取得APIが返す `edit_revision` は編集内容の版です。保存形式を示す `version` と独立して管理します。既存デッキは起動時のAlembic移行で0から開始します。
+
+`PATCH /api/v1/ppt/presentation/update` と `PATCH /api/v1/ppt/presentation/slide_update` には取得時の `expected_revision` を渡します。未指定は428、版不一致は409です。409の `detail.current_revision` を使い、再取得した内容を確認してから編集し直します。スライド更新後の版は `X-Presentation-Revision` レスポンスヘッダーで返します。
+
+保存・チャット・AI編集・生成チェックポイントは、同じトランザクション内でデッキの所有者と版を照合します。デッキ全体の置換ではIDの重複と別デッキのスライド混入も拒否します。Webの自動保存は409または428で停止し、再読み込みを案内します。
+
+バックエンドの確認は `servers/fastapi` で `python -m pytest tests/integration/test_slide_edit_api.py tests/integration/test_presentation_generation_flow.py tests/unit/test_migrations.py`、フロントエンドの確認は `servers/nextjs` で `npx tsc --noEmit` と `node --test tests/presentation-autosave.test.mjs` を実行します。
+
+## スライドの直接編集API
+
+利用者別のPresenton APIキーを `Authorization` のBearer値として使います。サーバーが所有者を確定し、他所有者のデッキは404で拒否します。
+
+| 操作 | API |
+|---|---|
+| デッキ一覧・取得 | `GET /api/v1/ppt/presentation/all`、`GET /api/v1/ppt/presentation/{id}` |
+| 空デッキ作成 | `POST /api/v1/ppt/presentation/create/blank` |
+| スライド取得 | `GET /api/v1/ppt/slide/{presentation_id}/{slide_id}` |
+| スライド更新 | `PATCH /api/v1/ppt/slide/{presentation_id}/{slide_id}` |
+| スライド追加 | `POST /api/v1/ppt/slide/{presentation_id}` |
+| スライド削除 | `DELETE /api/v1/ppt/slide/{presentation_id}/{slide_id}` |
+| 並べ替え | `POST /api/v1/ppt/slide/{presentation_id}/order` |
+
+更新は `expected_revision` と `changes` を指定します。`changes` には `content`、`ui`、`html_content`、`speaker_note`、`properties` のうち変更する項目だけを渡します。`content` を指定するとそのオブジェクトを置き換え、既存UIに値を反映します。未指定の項目と他のスライドを保持します。Smartスライドは `html_content`、テンプレートの配置変更は `ui` を使います。
+
+追加は `expected_revision`、`layout_group`、`layout`、`content` を指定し、`position` で挿入位置を選べます。IDはサーバーが発行します。削除には `expected_revision` を渡し、最後の1枚は保持します。並べ替えの `slide_ids` には全スライドIDを重複なく列挙します。各変更後の応答で新しい `edit_revision` を取得します。
+
+キーはリポジトリに保存せず、専用クライアントの保管先から読み込みます。値をログや作業項目に出力しません。
+
+## MCPによる直接編集
+
+標準のStreamable HTTPとBearer認証を使います。既存の生成・テンプレート・ファイルアップロード・ジョブ確認に加え、次の編集ツールを全生成モードで公開します。
+
+- `list_presentations` と `get_presentation` で保存済みデッキと編集版を取得
+- `create_presentation` で空の編集可能なデッキを作成
+- `get_slide` と `update_slide` で指定したデッキの1枚を取得・更新
+- `add_slide`、`delete_slide`、`reorder_slides` で構成を変更
+
+更新ツールには取得時の `expected_revision` を渡します。409になったら保存を止め、デッキを取り直して変更内容を確認します。管理APIとデッキ削除は公開対象から除外しています。
+
+`servers/fastapi/openai_spec.json` は実際のFastAPIアプリの `app.openapi()` から生成します。APIを変更した場合はこのスキーマを更新し、`python -m pytest tests/unit/test_mcp_server_auth.py tests/integration/test_slide_edit_api.py` で公開範囲と読み書きを確認します。

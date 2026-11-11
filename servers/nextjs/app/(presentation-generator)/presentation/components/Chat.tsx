@@ -1352,12 +1352,11 @@ const Chat = ({
     dispatch(setPresentationData(nextPresentation));
 
     try {
-      for (const slideIndex of preview.slideIndices) {
-        const slide = nextSlides[slideIndex];
-        if (slide) {
-          await PresentationGenerationApi.updatePresentationSlide(slide);
-        }
-      }
+      await PresentationGenerationApi.updatePresentationContent({
+        id: nextPresentation.id,
+        slides: nextSlides,
+        expected_revision: currentPresentation.edit_revision,
+      });
       await onPresentationChanged?.();
       notify.success(
         version === "original" ? "Original restored" : "Changes restored",
