@@ -13,6 +13,7 @@ RUN npm run build && rm -rf .next-build/cache
 
 FROM ghcr.io/presenton/presenton:v0.9.12-beta@sha256:18b7331753e133de2272db1b2ab0d92de75a8fc6c14e1dea81bb8a9edb8a4e95
 
+COPY servers/fastapi/api/main.py /app/servers/fastapi/api/main.py
 COPY servers/fastapi/constants/llm.py /app/servers/fastapi/constants/llm.py
 COPY servers/fastapi/api/v1/ppt/endpoints/presentation.py /app/servers/fastapi/api/v1/ppt/endpoints/presentation.py
 COPY servers/fastapi/models/sql/presentation.py /app/servers/fastapi/models/sql/presentation.py
