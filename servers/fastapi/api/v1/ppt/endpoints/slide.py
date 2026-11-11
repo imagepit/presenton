@@ -6,6 +6,9 @@ import uuid
 
 from models.sql.presentation import PresentationModel
 from models.sql.slide import SlideModel
+from models.presentation_with_slides import PresentationWithSlides
+from models.slide_edit_request import SlideCreateRequest, SlideEditRequest, SlideOrderRequest, SlideEditResult
+from services import slide_service
 from services.database import get_async_session
 from services.image_generation_service import ImageGenerationService
 from services.mem0_presentation_memory_service import (
@@ -21,6 +24,7 @@ from utils.process_slides import (
 )
 from api.v1.ppt.endpoints.presentation import (
     _apply_template_content_to_ui,
+    _presentation_response_data,
     _get_presentation_stream_layout,
     _hydrate_template_slide_ui,
     _template_slide_ui,
@@ -178,3 +182,92 @@ async def edit_slide_html(
     )
 
     return slide
+
+
+@SLIDE_ROUTER.get(
+    "/{presentation_id}/{slide_id}",
+    response_model=SlideEditResult,
+    operation_id="get_slide",
+)
+async def get_slide(
+    presentation_id: uuid.UUID,
+    slide_id: uuid.UUID,
+    sql_session: AsyncSession = Depends(get_async_session),
+):
+    presentation, slides = await slide_service.load_deck_slides(
+        sql_session, presentation_id
+    )
+    slide = slide_service.find_deck_slide(slides, slide_id)
+    return SlideEditResult(edit_revision=presentation.edit_revision, slide=slide)
+
+
+@SLIDE_ROUTER.patch(
+    "/{presentation_id}/{slide_id}",
+    response_model=SlideEditResult,
+    operation_id="update_slide",
+)
+async def update_slide(
+    presentation_id: uuid.UUID,
+    slide_id: uuid.UUID,
+    data: SlideEditRequest,
+    sql_session: AsyncSession = Depends(get_async_session),
+):
+    presentation, slide = await slide_service.save_slide_changes(
+        sql_session, presentation_id, slide_id, data
+    )
+    return SlideEditResult(edit_revision=presentation.edit_revision, slide=slide)
+
+
+@SLIDE_ROUTER.post(
+    "/{presentation_id}",
+    response_model=PresentationWithSlides,
+    operation_id="add_slide",
+)
+async def add_slide(
+    presentation_id: uuid.UUID,
+    data: SlideCreateRequest,
+    sql_session: AsyncSession = Depends(get_async_session),
+):
+    presentation, slides = await slide_service.insert_slide(
+        sql_session, presentation_id, data
+    )
+    return PresentationWithSlides(
+        **_presentation_response_data(presentation), slides=slides
+    )
+
+
+@SLIDE_ROUTER.delete(
+    "/{presentation_id}/{slide_id}",
+    response_model=PresentationWithSlides,
+    operation_id="delete_slide",
+)
+async def delete_slide(
+    presentation_id: uuid.UUID,
+    slide_id: uuid.UUID,
+    expected_revision: Annotated[int, Body(embed=True, ge=0)],
+    sql_session: AsyncSession = Depends(get_async_session),
+):
+    presentation, slides = await slide_service.remove_slide(
+        sql_session, presentation_id, slide_id, expected_revision
+    )
+    return PresentationWithSlides(
+        **_presentation_response_data(presentation), slides=slides
+    )
+
+
+@SLIDE_ROUTER.post(
+    "/{presentation_id}/order",
+    response_model=PresentationWithSlides,
+    operation_id="reorder_slides",
+)
+async def order_slides(
+    presentation_id: uuid.UUID,
+    data: SlideOrderRequest,
+    sql_session: AsyncSession = Depends(get_async_session),
+):
+    presentation, slides = await slide_service.reorder_slides(
+        sql_session, presentation_id, data
+    )
+    return PresentationWithSlides(
+        **_presentation_response_data(presentation), slides=slides
+    )

@@ -4,6 +4,8 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.orm import attributes
+from sqlalchemy.ext.asyncio import AsyncSession
+from models.slide_edit_request import SlideCreateRequest, SlideEditRequest, SlideOrderRequest
 from sqlmodel import Session
 
 from api.v1.auth.context import get_current_owner_id
@@ -92,3 +94,122 @@ def clear_revision_claims(session: Session) -> None:
 def discard_revision_claims(session: Session) -> None:
     session.info.pop("presentation_revision_claims", None)
     session.info.pop("presentation_read_revisions", None)
+
+
+
+
+async def load_deck_slides(session: AsyncSession, presentation_id: uuid.UUID) -> tuple[PresentationModel, list[SlideModel]]:
+    presentation = await session.get(PresentationModel, presentation_id)
+    if presentation is None:
+        raise HTTPException(404, "Presentation not found")
+    owner_id = get_current_owner_id()
+    if owner_id is not None and presentation.owner_id != owner_id:
+        raise HTTPException(404, "Presentation not found")
+    slides = list(
+        await session.scalars(
+            select(SlideModel)
+            .where(
+                SlideModel.presentation == presentation.id,
+                SlideModel.owner_id == presentation.owner_id,
+            )
+            .order_by(SlideModel.index)
+        )
+    )
+    return presentation, slides
+
+
+def find_deck_slide(slides: list[SlideModel], slide_id: uuid.UUID) -> SlideModel:
+    for slide in slides:
+        if slide.id == slide_id:
+            return slide
+    raise HTTPException(404, "Slide not found in the supplied presentation")
+
+
+async def save_slide_changes(
+    session: AsyncSession,
+    presentation_id: uuid.UUID,
+    slide_id: uuid.UUID,
+    request: SlideEditRequest,
+) -> tuple[PresentationModel, SlideModel]:
+    presentation, slides = await load_deck_slides(session, presentation_id)
+    require_revision(presentation, request.expected_revision)
+    slide = find_deck_slide(slides, slide_id)
+    changes = request.changes.model_dump(exclude_unset=True)
+    if not changes or changes.get("content", {}) is None:
+        raise HTTPException(
+            422, "Supply at least one change. Slide content cannot be null."
+        )
+    slide.sqlmodel_update(changes)
+    if "content" in changes:
+        from api.v1.ppt.endpoints.presentation import _hydrate_template_slide_ui
+
+        _hydrate_template_slide_ui(slide, presentation.layout)
+    await session.commit()
+    return presentation, slide
+
+
+async def insert_slide(
+    session: AsyncSession, presentation_id: uuid.UUID, request: SlideCreateRequest
+) -> tuple[PresentationModel, list[SlideModel]]:
+    from constants.presentation import MAX_NUMBER_OF_SLIDES
+
+    presentation, slides = await load_deck_slides(session, presentation_id)
+    require_revision(presentation, request.expected_revision)
+    if len(slides) >= MAX_NUMBER_OF_SLIDES:
+        raise HTTPException(400, "Presentation has reached the slide limit")
+    position = len(slides) if request.position is None else request.position
+    if position > len(slides):
+        raise HTTPException(422, "Slide position is outside the presentation")
+    slide = SlideModel(
+        presentation=presentation.id,
+        owner_id=presentation.owner_id,
+        index=position,
+        **request.model_dump(exclude={"position", "expected_revision"}),
+    )
+    from api.v1.ppt.endpoints.presentation import _hydrate_template_slide_ui
+
+    _hydrate_template_slide_ui(slide, presentation.layout)
+    slides.insert(position, slide)
+    for index, item in enumerate(slides):
+        item.index = index
+    presentation.n_slides = len(slides)
+    session.add(slide)
+    await session.commit()
+    return presentation, slides
+
+
+async def remove_slide(
+    session: AsyncSession,
+    presentation_id: uuid.UUID,
+    slide_id: uuid.UUID,
+    expected_revision: int,
+) -> tuple[PresentationModel, list[SlideModel]]:
+    presentation, slides = await load_deck_slides(session, presentation_id)
+    require_revision(presentation, expected_revision)
+    slide = find_deck_slide(slides, slide_id)
+    if len(slides) <= 1:
+        raise HTTPException(400, "A presentation must retain at least one slide")
+    slides.remove(slide)
+    await session.delete(slide)
+    for index, item in enumerate(slides):
+        item.index = index
+    presentation.n_slides = len(slides)
+    await session.commit()
+    return presentation, slides
+
+
+async def reorder_slides(
+    session: AsyncSession, presentation_id: uuid.UUID, request: SlideOrderRequest
+) -> tuple[PresentationModel, list[SlideModel]]:
+    presentation, slides = await load_deck_slides(session, presentation_id)
+    require_revision(presentation, request.expected_revision)
+    if len(request.slide_ids) != len(slides) or set(request.slide_ids) != {
+        slide.id for slide in slides
+    }:
+        raise HTTPException(422, "slide_ids must contain every slide exactly once")
+    by_id = {slide.id: slide for slide in slides}
+    ordered = [by_id[slide_id] for slide_id in request.slide_ids]
+    for index, slide in enumerate(ordered):
+        slide.index = index
+    await session.commit()
+    return presentation, ordered

@@ -987,3 +987,23 @@ Track the public roadmap on GitHub Projects: [https://github.com/orgs/presenton/
 保存・チャット・AI編集・生成チェックポイントは、同じトランザクション内でデッキの所有者と版を照合します。デッキ全体の置換ではIDの重複と別デッキのスライド混入も拒否します。Webの自動保存は409または428で停止し、再読み込みを案内します。
 
 バックエンドの確認は `servers/fastapi` で `python -m pytest tests/integration/test_slide_edit_api.py tests/integration/test_presentation_generation_flow.py tests/unit/test_migrations.py`、フロントエンドの確認は `servers/nextjs` で `npx tsc --noEmit` と `node --test tests/presentation-autosave.test.mjs` を実行します。
+
+## スライドの直接編集API
+
+利用者別のPresenton APIキーを `Authorization` のBearer値として使います。サーバーが所有者を確定し、他所有者のデッキは404で拒否します。
+
+| 操作 | API |
+|---|---|
+| デッキ一覧・取得 | `GET /api/v1/ppt/presentation/all`、`GET /api/v1/ppt/presentation/{id}` |
+| 空デッキ作成 | `POST /api/v1/ppt/presentation/create/blank` |
+| スライド取得 | `GET /api/v1/ppt/slide/{presentation_id}/{slide_id}` |
+| スライド更新 | `PATCH /api/v1/ppt/slide/{presentation_id}/{slide_id}` |
+| スライド追加 | `POST /api/v1/ppt/slide/{presentation_id}` |
+| スライド削除 | `DELETE /api/v1/ppt/slide/{presentation_id}/{slide_id}` |
+| 並べ替え | `POST /api/v1/ppt/slide/{presentation_id}/order` |
+
+更新は `expected_revision` と `changes` を指定します。`changes` には `content`、`ui`、`html_content`、`speaker_note`、`properties` のうち変更する項目だけを渡します。`content` を指定するとそのオブジェクトを置き換え、既存UIに値を反映します。未指定の項目と他のスライドを保持します。Smartスライドは `html_content`、テンプレートの配置変更は `ui` を使います。
+
+追加は `expected_revision`、`layout_group`、`layout`、`content` を指定し、`position` で挿入位置を選べます。IDはサーバーが発行します。削除には `expected_revision` を渡し、最後の1枚は保持します。並べ替えの `slide_ids` には全スライドIDを重複なく列挙します。各変更後の応答で新しい `edit_revision` を取得します。
+
+キーはリポジトリに保存せず、専用クライアントの保管先から読み込みます。値をログや作業項目に出力しません。

@@ -100,7 +100,7 @@ def slide_edit_client(monkeypatch, tmp_path):
     asyncio.run(engine.dispose())
 
 
-def _seed_deck(sessions, *, template=True, alternate_layout=False):
+def _seed_deck(sessions, *, template=True, alternate_layout=False, owner_id=None):
     layout = (
         {"name": "template:qa", "icon_type": "bold", "layouts": [_template_layout()]}
         if template
@@ -122,6 +122,7 @@ def _seed_deck(sessions, *, template=True, alternate_layout=False):
         layout["layouts"].append(alternate)
     presentation = PresentationModel(
         id=uuid.uuid4(),
+        owner_id=owner_id,
         version=PresentationVersion.V2_STANDARD,
         content="Slide edit regression",
         n_slides=1,
@@ -129,6 +130,7 @@ def _seed_deck(sessions, *, template=True, alternate_layout=False):
         layout=layout,
     )
     slide = SlideModel(
+        owner_id=owner_id,
         id=uuid.uuid4(),
         presentation=presentation.id,
         index=0,
@@ -350,3 +352,117 @@ def test_read_revision_survives_release_of_parent_orm_reference(slide_edit_clien
             saved = await current.get(SlideModel, slide.id)
             assert saved.speaker_note == "Original note"
     asyncio.run(run())
+
+
+def test_direct_slide_api_round_trip_and_stale_rejection(slide_edit_client):
+    client = slide_edit_client.client
+    deck, slide = _seed_deck(slide_edit_client.sessions)
+    base = f"/api/v1/ppt/slide/{deck.id}"
+    loaded = client.get(f"{base}/{slide.id}")
+    assert loaded.status_code == 200
+    assert loaded.json()["edit_revision"] == 0
+    assert loaded.json()["slide"]["id"] == str(slide.id)
+    content = {"hero": {"headline": "Direct edit"}}
+    saved = client.patch(f"{base}/{slide.id}", json={"expected_revision": 0, "changes": {"content": content}})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["edit_revision"] == 1
+    changed = saved.json()["slide"]
+    assert changed["content"] == content
+    assert changed["ui"]["components"][0]["elements"][0]["runs"][0]["text"] == "Direct edit"
+    assert changed["ui"]["description"] == "User-adjusted title UI"
+    assert changed["id"] == str(slide.id)
+    stale = client.patch(f"{base}/{slide.id}", json={"expected_revision": 0, "changes": {"speaker_note": "Stale"}})
+    assert stale.status_code == 409
+    added = client.post(base, json={
+        "expected_revision": 1, "layout_group": slide.layout_group, "layout": slide.layout,
+        "content": {"hero": {"headline": "Second"}}, "position": 0,
+    })
+    assert added.status_code == 200, added.text
+    new_id = added.json()["slides"][0]["id"]
+    assert added.json()["edit_revision"] == 2
+    assert added.json()["n_slides"] == 2
+    ordered = client.post(f"{base}/order", json={"expected_revision": 2, "slide_ids": [str(slide.id), new_id]})
+    assert ordered.status_code == 200, ordered.text
+    assert [item["id"] for item in ordered.json()["slides"]] == [str(slide.id), new_id]
+    assert ordered.json()["edit_revision"] == 3
+    deleted = client.request("DELETE", f"{base}/{new_id}", json={"expected_revision": 3})
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["edit_revision"] == 4
+    assert deleted.json()["n_slides"] == 1
+    assert deleted.json()["slides"][0]["index"] == 0
+    final = client.get(f"/api/v1/ppt/presentation/{deck.id}").json()
+    assert final["slides"][0]["content"] == content
+    assert final["edit_revision"] == 4
+    last = client.request("DELETE", f"{base}/{slide.id}", json={"expected_revision": 4})
+    assert last.status_code == 400
+
+
+def test_direct_slide_api_rejects_mismatched_ids_and_invalid_changes(slide_edit_client):
+    client = slide_edit_client.client
+    deck, slide = _seed_deck(slide_edit_client.sessions)
+    other_deck, other_slide = _seed_deck(slide_edit_client.sessions)
+    base = f"/api/v1/ppt/slide/{deck.id}"
+    assert client.get(f"{base}/{other_slide.id}").status_code == 404
+    assert client.patch(f"{base}/{other_slide.id}", json={"expected_revision": 0, "changes": {"speaker_note": "Denied"}}).status_code == 404
+    for changes in ({}, {"content": None}, {"owner_id": str(uuid.uuid4())}, {"index": 9}):
+        denied = client.patch(f"{base}/{slide.id}", json={"expected_revision": 0, "changes": changes})
+        assert denied.status_code == 422, denied.text
+    for ids in ([str(slide.id), str(slide.id)], [str(other_slide.id)]):
+        denied = client.post(f"{base}/order", json={"expected_revision": 0, "slide_ids": ids})
+        assert denied.status_code == 422
+    for presentation in (deck, other_deck):
+        unchanged = client.get(f"/api/v1/ppt/presentation/{presentation.id}").json()
+        assert unchanged["edit_revision"] == 0
+        assert len(unchanged["slides"]) == 1
+
+
+def test_direct_edit_authentication_owner_scope_and_revocation(monkeypatch, tmp_path):
+    from tests.integration.test_auth_endpoints import _build_client
+    from api import middlewares
+    from api.middlewares import SessionAuthMiddleware
+    monkeypatch.delenv("DISABLE_AUTH", raising=False)
+    monkeypatch.setenv("USER_CONFIG_PATH", str(tmp_path / "config.json"))
+    client, engine = _build_client(tmp_path)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    async def create_deck_tables():
+        async with engine.begin() as connection:
+            await connection.run_sync(PresentationModel.__table__.create)
+            await connection.run_sync(SlideModel.__table__.create)
+    asyncio.run(create_deck_tables())
+    monkeypatch.setattr(middlewares, "async_session_maker", sessions)
+    client.app.add_middleware(SessionAuthMiddleware)
+    client.app.include_router(slide_endpoint.SLIDE_ROUTER, prefix="/api/v1/ppt")
+    client.app.include_router(PRESENTATION_ROUTER, prefix="/api/v1/ppt")
+    try:
+        assert client.post("/api/v1/auth/setup", json={"username": "admin", "password": "secret123"}).status_code == 200
+        assert client.post("/api/v1/auth/login", json={"username": "admin", "password": "secret123"}).status_code == 200
+        admin_id = uuid.UUID(client.get("/api/v1/auth/status").json()["user_id"])
+        member = client.post("/api/v1/admin/users", json={"username": "member", "password": "secret456"})
+        assert member.status_code in (200, 201)
+        member_id = uuid.UUID(member.json()["id"])
+        issued = client.post("/api/v1/admin/api-keys", json={"user_id": str(admin_id), "label": "editing test"})
+        assert issued.status_code == 201
+        key = issued.json()
+        own, slide = _seed_deck(sessions, owner_id=admin_id)
+        other, foreign = _seed_deck(sessions, owner_id=member_id)
+        client.cookies.clear()
+        own_path = f"/api/v1/ppt/slide/{own.id}/{slide.id}"
+        assert client.get(own_path).status_code == 401
+        assert client.get(own_path, headers={"Authorization": "Bearer invalid"}).status_code == 401
+        headers = {"Authorization": f"Bearer {key['token']}"}
+        accessible = client.get(own_path, headers=headers)
+        assert accessible.status_code == 200, accessible.text
+        assert client.get(f"/api/v1/ppt/slide/{other.id}/{foreign.id}", headers=headers).status_code == 404
+        denied = client.patch(f"/api/v1/ppt/slide/{other.id}/{foreign.id}", headers=headers, json={"expected_revision": 0, "changes": {"speaker_note": "Denied"}})
+        assert denied.status_code == 404
+        changed = client.patch(own_path, headers=headers, json={"expected_revision": 0, "changes": {"speaker_note": "Authorized edit"}})
+        assert changed.status_code == 200
+        assert changed.json()["edit_revision"] == 1
+        assert client.get("/api/v1/ppt/presentation/all", headers=headers).json()[0]["id"] == str(own.id)
+        client.post("/api/v1/auth/login", json={"username": "admin", "password": "secret123"})
+        assert client.post(f"/api/v1/admin/api-keys/{key['id']}/revoke").status_code == 200
+        client.cookies.clear()
+        assert client.get(own_path, headers=headers).status_code == 401
+    finally:
+        client.close()
+        asyncio.run(engine.dispose())
