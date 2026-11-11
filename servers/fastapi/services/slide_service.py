@@ -33,10 +33,10 @@ def claim_revision(session: Session, presentation: PresentationModel) -> None:
     authenticated_owner = get_current_owner_id()
     if authenticated_owner is not None and owner_id != authenticated_owner:
         raise HTTPException(404, "Presentation not found")
-    claimed = session.info.setdefault("presentation_revision_claims", set())
+    claimed = session.info.setdefault("presentation_revision_claims", {})
     if presentation.id in claimed:
         return
-    expected = presentation.edit_revision
+    expected = session.info.get("presentation_read_revisions", {}).get(presentation.id, presentation.edit_revision)
     with session.no_autoflush:
         result = session.execute(
             update(PresentationModel)
@@ -57,7 +57,7 @@ def claim_revision(session: Session, presentation: PresentationModel) -> None:
                 raise HTTPException(404, "Presentation not found")
             raise PresentationConflict(current)
     attributes.set_committed_value(presentation, "edit_revision", expected + 1)
-    claimed.add(presentation.id)
+    claimed[presentation.id] = expected + 1
 
 
 def protect_presentation_writes(session: Session, _flush_context, _instances) -> None:
@@ -79,5 +79,16 @@ def protect_presentation_writes(session: Session, _flush_context, _instances) ->
             claim_revision(session, presentation)
 
 
+def remember_presentation_revision(session: Session, row) -> None:
+    if isinstance(row, PresentationModel):
+        session.info.setdefault("presentation_read_revisions", {}).setdefault(row.id, row.edit_revision)
+
+
 def clear_revision_claims(session: Session) -> None:
+    claimed = session.info.pop("presentation_revision_claims", {})
+    session.info.setdefault("presentation_read_revisions", {}).update(claimed)
+
+
+def discard_revision_claims(session: Session) -> None:
     session.info.pop("presentation_revision_claims", None)
+    session.info.pop("presentation_read_revisions", None)

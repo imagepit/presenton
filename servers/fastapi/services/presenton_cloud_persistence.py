@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import Any
 
-from services.slide_service import claim_revision
+from services.slide_service import claim_revision, require_revision
 from sqlalchemy import inspect, delete
 
 from models.sql.presentation import PresentationModel, PresentationVersion
@@ -118,7 +118,8 @@ async def persist_cloud_presentation_complete(
     owner_id: uuid.UUID | None,
     cloud_payload: dict[str, Any],
     generation_mode: str | None = None,
-) -> None:
+    expected_revision: int | None = None,
+) -> int | None:
     presentation_id = _uuid(cloud_payload.get("id"))
     slides_payload = cloud_payload.get("slides")
     if presentation_id is None or not isinstance(slides_payload, list):
@@ -150,6 +151,8 @@ async def persist_cloud_presentation_complete(
                 presentation_id,
             )
             return
+        if presentation is not None:
+            require_revision(presentation, expected_revision)
         if presentation is None:
             presentation = PresentationModel(
                 id=presentation_id,
@@ -223,6 +226,7 @@ async def persist_cloud_presentation_complete(
         session.add(presentation)
         session.add_all(slides)
         await session.commit()
+        return presentation.edit_revision
 
 
 async def get_local_presentation_generation_mode(
@@ -247,3 +251,11 @@ async def get_local_slide_presentation_id(
         if slide is None or slide.owner_id != owner_id:
             return None
         return slide.presentation
+
+
+async def get_local_presentation_revision(owner_id: uuid.UUID | None, presentation_id: uuid.UUID) -> int | None:
+    async with async_session_maker() as session:
+        presentation = await session.get(PresentationModel, presentation_id)
+        if presentation is None or presentation.owner_id != owner_id:
+            return None
+        return presentation.edit_revision

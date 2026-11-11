@@ -58,7 +58,7 @@ from utils.llm_calls.generate_presentation_outlines import (
     get_messages as get_outline_messages,
 )
 from models.sql.slide import SlideModel
-from services.slide_service import require_revision, claim_revision
+from services.slide_service import require_revision, claim_revision, discard_revision_claims
 from models.sse_response import (
     SSECompleteResponse,
     SSEErrorResponse,
@@ -2205,9 +2205,11 @@ async def stream_smart_presentation(
         # the checkpoint sessions. Do not delete/reinsert them: the editor may
         # already have persisted asset or HTML updates while generation ran.
         await sql_session.rollback()
+        discard_revision_claims(sql_session.sync_session)
         final_presentation = await sql_session.get(PresentationModel, presentation_id)
         if final_presentation is None:
             raise HTTPException(status_code=404, detail="Presentation not found")
+        await sql_session.refresh(final_presentation)
         require_revision(final_presentation, generation_revision)
         slides = list(
             await sql_session.scalars(

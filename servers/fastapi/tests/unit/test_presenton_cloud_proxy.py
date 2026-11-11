@@ -1,4 +1,6 @@
 import asyncio
+import pytest
+from unittest.mock import AsyncMock
 import json
 import uuid
 from datetime import timedelta
@@ -8,6 +10,11 @@ from starlette.requests import Request
 
 from services import presenton_cloud_proxy
 from utils.datetime_utils import get_current_utc_datetime
+
+
+@pytest.fixture(autouse=True)
+def isolate_local_revision_lookup(monkeypatch):
+    monkeypatch.setattr(presenton_cloud_proxy, "get_local_presentation_revision", AsyncMock(return_value=None))
 
 
 def _request(

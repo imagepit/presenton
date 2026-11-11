@@ -20,6 +20,7 @@ COPY servers/fastapi/models/sql/presentation.py /app/servers/fastapi/models/sql/
 COPY servers/fastapi/models/presentation_with_slides.py /app/servers/fastapi/models/presentation_with_slides.py
 COPY servers/fastapi/services/database.py /app/servers/fastapi/services/database.py
 COPY servers/fastapi/services/slide_service.py /app/servers/fastapi/services/slide_service.py
+COPY servers/fastapi/services/presenton_cloud_proxy.py /app/servers/fastapi/services/presenton_cloud_proxy.py
 COPY servers/fastapi/services/presenton_cloud_persistence.py /app/servers/fastapi/services/presenton_cloud_persistence.py
 COPY servers/fastapi/migrations.py /app/servers/fastapi/migrations.py
 COPY servers/fastapi/alembic/versions/imagepit_presentation_revision.py /app/servers/fastapi/alembic/versions/imagepit_presentation_revision.py

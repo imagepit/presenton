@@ -321,3 +321,32 @@ def test_late_ai_edit_cannot_overwrite_a_newer_save(slide_edit_client):
     assert after["edit_revision"] == 1
     assert after["slides"][0]["id"] == str(slide.id)
     assert after["slides"][0]["content"] == slide.content
+
+
+def test_read_revision_survives_release_of_parent_orm_reference(slide_edit_client):
+    import gc
+    from services.slide_service import PresentationConflict
+    deck, slide = _seed_deck(slide_edit_client.sessions)
+    async def run():
+        async with slide_edit_client.sessions() as stale:
+            original = await stale.get(PresentationModel, deck.id)
+            assert original.edit_revision == 0
+            del original
+            gc.collect()
+            async with slide_edit_client.sessions() as current:
+                saved = await current.get(PresentationModel, deck.id)
+                saved.title = "Newer user change"
+                await current.commit()
+            # Chat tools may load the parent again after the model has generated
+            # an edit. Retain the original read revision across that reload.
+            loaded = await stale.get(PresentationModel, deck.id)
+            assert loaded.edit_revision == 1
+            edited = await stale.get(SlideModel, slide.id)
+            edited.speaker_note = "Late generated edit"
+            with pytest.raises(PresentationConflict):
+                await stale.commit()
+            await stale.rollback()
+        async with slide_edit_client.sessions() as current:
+            saved = await current.get(SlideModel, slide.id)
+            assert saved.speaker_note == "Original note"
+    asyncio.run(run())

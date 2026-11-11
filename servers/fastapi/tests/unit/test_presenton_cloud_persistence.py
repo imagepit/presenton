@@ -1,4 +1,6 @@
 import asyncio
+import pytest
+from fastapi import HTTPException
 import uuid
 
 from sqlalchemy import select
@@ -85,6 +87,7 @@ def test_cloud_generation_is_mirrored_into_the_local_database(monkeypatch, tmp_p
                 ],
             },
             generation_mode="smart",
+            expected_revision=created.edit_revision,
         )
 
         async with session_maker() as session:
@@ -104,6 +107,22 @@ def test_cloud_generation_is_mirrored_into_the_local_database(monkeypatch, tmp_p
             assert slides[0].id == slide_id
             assert slides[0].owner_id == owner_id
             assert slides[0].html_content == "<section>Launch Plan</section>"
+
+        stale_revision = completed.edit_revision
+        async with session_maker() as session:
+            latest = await session.get(PresentationModel, presentation_id)
+            latest.title = "Newer local change"
+            await session.commit()
+        with pytest.raises(HTTPException) as conflict:
+            await presenton_cloud_persistence.persist_cloud_presentation_complete(
+                owner_id, {"id": str(presentation_id), "title": "Late cloud result", "slides": []},
+                generation_mode="smart", expected_revision=stale_revision,
+            )
+        assert conflict.value.status_code == 409
+        async with session_maker() as session:
+            latest = await session.get(PresentationModel, presentation_id)
+            assert latest.title == "Newer local change"
+            assert await session.scalar(select(SlideModel.id)) == slide_id
 
         # A Smart retry must repair an existing row that was previously saved
         # with the legacy default mode.

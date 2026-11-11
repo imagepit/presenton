@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -22,10 +23,11 @@ def test_explicit_regeneration_creates_new_slides_while_reconnects_resume(monkey
         endpoint, "get_provider_settings", AsyncMock(return_value={"LLM": "codex"})
     )
     monkeypatch.setattr(endpoint, "load_community_references", AsyncMock(return_value=[]))
-    generate = AsyncMock(return_value={
-        "title": "Fresh deck",
-        "slides": [{"title": "Fresh slide", "html": "<section>Fresh slide</section>"}],
-    })
+    async def generate_with_checkpoint(**kwargs):
+        slide = {"title": "Fresh slide", "html": "<section>Fresh slide</section>"}
+        await kwargs["on_slide"](0, slide)
+        return {"title": "Fresh deck", "slides": [slide]}
+    generate = AsyncMock(side_effect=generate_with_checkpoint)
     monkeypatch.setattr(endpoint, "generate_smart_presentation", generate)
 
     async def stream(presentation_id):
@@ -60,7 +62,11 @@ def test_explicit_regeneration_creates_new_slides_while_reconnects_resume(monkey
             generate.assert_not_awaited()
             async with sessions() as session:
                 await endpoint.regenerate_smart_presentation(deck.id, session)
-            assert "Fresh slide" in await stream(deck.id)
+            generated = await stream(deck.id)
+            events = [json.loads(line.split("data:", 1)[1]) for line in generated.splitlines() if line.startswith("data:")]
+            assert any(event.get("type") == "complete" for event in events), generated
+            assert not any(event.get("type") == "error" for event in events), generated
+            assert "Fresh slide" in generated
             generate.assert_awaited_once()
             assert generate.await_args.kwargs["existing_slides"] == []
 

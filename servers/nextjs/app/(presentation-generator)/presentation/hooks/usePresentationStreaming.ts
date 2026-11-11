@@ -564,7 +564,7 @@ export const usePresentationStreaming = (
                 ? data.presentation
                 : null;
 
-              if (hasCompletePresentation) {
+              if (hasCompletePresentation && typeof data.presentation.edit_revision === "number") {
                 dispatch(
                   setPresentationData(
                     mergePresentationPreservingTemplateData(
@@ -575,9 +575,9 @@ export const usePresentationStreaming = (
                   )
                 );
               } else if (
-                isSmartMode &&
+                hasCompletePresentation || (isSmartMode &&
                 typeof data.presentation_id === "string" &&
-                data.presentation_id === presentationId
+                data.presentation_id === presentationId)
               ) {
                 // Smart v2 completes with only the presentation id. The local
                 // proxy mirrors the finished cloud deck before forwarding this
