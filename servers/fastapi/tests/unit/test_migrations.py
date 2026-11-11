@@ -908,3 +908,18 @@ def test_upgrade_from_template_v2_theme_adds_unified_keys_and_task_payload(tmp_p
         assert "access_tokens" not in tables
     finally:
         engine.dispose()
+
+
+def test_edit_revision_migration_preserves_existing_decks(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'edit-revision.db'}"
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE presentations (id TEXT PRIMARY KEY)"))
+        connection.execute(text("INSERT INTO presentations (id) VALUES ('existing')"))
+    config = _alembic_config(database_url)
+    command.stamp(config, migrations.REVISION_UNIFIED_API_KEYS)
+    command.upgrade(config, "head")
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT id, edit_revision FROM presentations")).one() == ("existing", 0)
+    engine.dispose()

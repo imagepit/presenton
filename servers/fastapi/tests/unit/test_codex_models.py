@@ -7,9 +7,15 @@ from utils import llm_provider
 
 @pytest.mark.parametrize(
     "model",
-    ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+    [
+        "gpt-6.1-sol",
+        "gpt-6.1-terra",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+    ],
 )
-def test_codex_gpt_5_6_model_is_preserved(monkeypatch, model):
+def test_supported_codex_model_is_preserved(monkeypatch, model):
     monkeypatch.setattr(llm_provider, "get_llm_provider", lambda: LLMProvider.CODEX)
     monkeypatch.setattr(llm_provider, "get_codex_model_env", lambda: model)
 

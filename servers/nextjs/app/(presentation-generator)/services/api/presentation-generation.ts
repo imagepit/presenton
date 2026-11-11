@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { getHeader, getHeaderForFormData } from "./header";
 import { IconSearch, ImageGenerate, PreviousGeneratedImagesResponse } from "./params";
 import { ApiResponseHandler } from "./api-error-handler";
@@ -19,6 +20,9 @@ export type BlankPresentationResponse = {
   fonts?: Record<string, string> | null;
   slides: Array<Record<string, unknown>>;
 };
+
+const savedRevisionSchema = z.object({ edit_revision: z.number().int().nonnegative() });
+const revisionHeaderSchema = z.string().regex(/^\d+$/).transform(Number);
 
 export class PresentationGenerationApi {
   static async regenerateSmartPresentation(id: string): Promise<void> {
@@ -194,29 +198,28 @@ export class PresentationGenerationApi {
         }
       );
 
-      return await ApiResponseHandler.handleResponse(response, "Failed to update presentation content");
+      const saved = await ApiResponseHandler.handleResponse(response, "Failed to update presentation content");
+      return savedRevisionSchema.parse(saved);
     } catch (error) {
       console.error("error in presentation content update", error);
       throw error;
     }
   }
 
-  static async updatePresentationSlide(slide: Slide) {
+  static async updatePresentationSlide(slide: Slide, expectedRevision: number | undefined) {
     try {
       const response = await fetch(
         getApiUrl(`/api/v1/ppt/presentation/slide_update`),
         {
           method: "PATCH",
           headers: getHeader(),
-          body: JSON.stringify({ slide }),
+          body: JSON.stringify({ slide, expected_revision: expectedRevision }),
           cache: "no-cache",
         }
       );
 
-      return await ApiResponseHandler.handleResponse(
-        response,
-        "Failed to update slide"
-      );
+      await ApiResponseHandler.handleResponse(response, "Failed to update slide");
+      return { edit_revision: revisionHeaderSchema.parse(response.headers.get("X-Presentation-Revision")) };
     } catch (error) {
       console.error("error in presentation slide update", error);
       throw error;

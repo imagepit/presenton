@@ -18,6 +18,7 @@ export interface PresentationData {
   template_id?: string | null;
   design_v2_id?: string | null;
   version?: string;
+  edit_revision?: number;
   generation_mode?: "standard" | "smart";
   can_regenerate?: boolean;
   type?: "standard" | "smart";
@@ -135,6 +136,11 @@ const presentationGenerationSlice = createSlice({
         theme: normalizeTemplateTheme(action.payload.theme),
       };
       state.chatHtmlSelection = null;
+    },
+    setEditRevision: (state, action: PayloadAction<{ id: string; revision: number }>) => {
+      if (state.presentationData?.id === action.payload.id) {
+        state.presentationData.edit_revision = action.payload.revision;
+      }
     },
     setEnableHtmlSelector: (state, action: PayloadAction<boolean>) => {
       state.enableHtmlSelector = action.payload;
@@ -584,6 +590,7 @@ export const {
   clearOutlines,
   deleteSlideOutline,
   setPresentationData,
+  setEditRevision,
   setEnableHtmlSelector,
   setChatHtmlSelection,
   clearChatHtmlSelection,

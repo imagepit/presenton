@@ -7,7 +7,9 @@ from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import parse_qs
 
-from fastapi import Request
+from fastapi import Request, HTTPException
+from models.sse_response import SSEErrorResponse
+from services.slide_service import PresentationConflict
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
@@ -27,6 +29,7 @@ from services.presenton_cloud import (
 )
 from services.presenton_cloud_persistence import (
     get_local_presentation_generation_mode,
+    get_local_presentation_revision,
     get_local_slide_presentation_id,
     persist_cloud_presentation_complete,
     persist_cloud_presentation_created,
@@ -209,7 +212,7 @@ def _smart_update_payload(
     payload: dict[str, Any], presentation_id: uuid.UUID
 ) -> dict[str, Any]:
     result: dict[str, Any] = {"id": str(presentation_id)}
-    for key in ("n_slides", "title"):
+    for key in ("n_slides", "title", "expected_revision"):
         if key in payload:
             result[key] = payload[key]
     slides = payload.get("slides")
@@ -280,7 +283,8 @@ async def _sync_cloud_presentation(
     owner_id: uuid.UUID | None,
     presentation_id: uuid.UUID,
     generation_mode: str,
-) -> None:
+    expected_revision: int | None = None,
+) -> int | None:
     try:
         presentation = await _fetch_cloud_presentation(
             session,
@@ -288,10 +292,11 @@ async def _sync_cloud_presentation(
             presentation_id=presentation_id,
             generation_mode=generation_mode,
         )
-        await persist_cloud_presentation_complete(
+        return await persist_cloud_presentation_complete(
             owner_id,
             presentation,
             generation_mode=generation_mode,
+            expected_revision=expected_revision,
         )
     except PresentonCloudError as exc:
         logger.warning(
@@ -486,6 +491,14 @@ async def maybe_proxy_presenton_cloud_request(
         payload=request_payload,
     )
 
+    expected_revision = await get_local_presentation_revision(owner_id, presentation_id) if presentation_id is not None else None
+    supplied_revision = request_payload.get("expected_revision") if request_payload else None
+    if expected_revision is not None and path in {"/api/v1/ppt/presentation/update", "/api/v1/ppt/presentation/slide_update"} and supplied_revision is None:
+        return JSONResponse(status_code=428, content={"detail": "expected_revision is required"})
+    if expected_revision is not None and supplied_revision is not None and supplied_revision != expected_revision:
+        conflict = PresentationConflict(expected_revision)
+        return JSONResponse(status_code=conflict.status_code, content={"detail": conflict.detail})
+
     upstream_path = path
     upstream_method = request.method
     upstream_body = request_body
@@ -605,6 +618,7 @@ async def maybe_proxy_presenton_cloud_request(
         or (path.startswith("/api/v1/ppt/chat/") and not is_chat_stream)
     )
     if should_buffer:
+        saved_revision = None
         try:
             response_body = await upstream.aread()
             response_payload = _json_object(response_body)
@@ -633,18 +647,27 @@ async def maybe_proxy_presenton_cloud_request(
             elif is_success and presentation_id is not None and path in (
                 CLOUD_EDIT_PATHS | {"/api/v1/ppt/chat/message"}
             ):
-                await _sync_cloud_presentation(
+                saved_revision = await _sync_cloud_presentation(
                     session,
                     issuer=issuer,
                     owner_id=owner_id,
                     presentation_id=presentation_id,
                     generation_mode=generation_mode,
+                    expected_revision=expected_revision,
                 )
+            response_headers = _forward_response_headers(upstream.headers)
+            if saved_revision is not None:
+                response_headers["X-Presentation-Revision"] = str(saved_revision)
+                if response_payload is not None:
+                    response_payload["edit_revision"] = saved_revision
+                    response_body = json.dumps(response_payload).encode("utf-8")
             return Response(
                 content=response_body,
                 status_code=upstream.status_code,
-                headers=_forward_response_headers(upstream.headers),
+                headers=response_headers,
             )
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         finally:
             await upstream.aclose()
             await client.aclose()
@@ -668,6 +691,7 @@ async def maybe_proxy_presenton_cloud_request(
                                 owner_id,
                                 presentation,
                                 generation_mode=generation_mode,
+                                expected_revision=expected_revision,
                             )
                             synced_on_complete = True
                         elif presentation_id is not None and (
@@ -680,9 +704,13 @@ async def maybe_proxy_presenton_cloud_request(
                                     owner_id=owner_id,
                                     presentation_id=presentation_id,
                                     generation_mode=generation_mode,
+                                    expected_revision=expected_revision,
                                 )
                             synced_on_complete = True
                 yield chunk
+        except HTTPException as exc:
+            synced_on_complete = True
+            yield SSEErrorResponse(detail=str(exc.detail)).to_string().encode("utf-8")
         finally:
             await upstream.aclose()
             await client.aclose()
@@ -699,6 +727,7 @@ async def maybe_proxy_presenton_cloud_request(
                         owner_id=owner_id,
                         presentation_id=presentation_id,
                         generation_mode=generation_mode,
+                        expected_revision=expected_revision,
                     )
 
     return StreamingResponse(

@@ -161,3 +161,17 @@ def test_anonymous_simple_get_does_not_consume_image_quota(desktop_client, monke
     assert calls == []
     assert client.get(url, headers={DESKTOP_TOKEN_HEADER: TOKEN}).status_code == 200
     assert calls == ["ordinary"]
+
+
+def test_revision_header_is_readable_by_cross_origin_editors():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from api.main import app as production_app
+    cors = next(item for item in production_app.user_middleware if item.cls is CORSMiddleware)
+    probe = FastAPI()
+    probe.add_middleware(cors.cls, **cors.kwargs)
+    @probe.get("/")
+    def saved_revision():
+        return {"saved": True}
+    response = TestClient(probe).get("/", headers={"Origin": "http://127.0.0.1:40001"})
+    assert "X-Presentation-Revision" in response.headers["Access-Control-Expose-Headers"]

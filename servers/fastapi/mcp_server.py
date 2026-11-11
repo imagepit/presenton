@@ -98,7 +98,19 @@ MCP_SHARED_ROUTE_MAPS = [
     ),
 ]
 
+MCP_EDITING_ROUTE_MAPS = [
+    RouteMap(methods=["GET"], pattern=r"^/api/v1/ppt/presentation/all$", mcp_type=MCPType.TOOL),
+    RouteMap(methods=["GET"], pattern=r"^/api/v1/ppt/presentation/\{id\}$", mcp_type=MCPType.TOOL),
+    RouteMap(methods=["POST"], pattern=r"^/api/v1/ppt/presentation/create/blank$", mcp_type=MCPType.TOOL),
+    RouteMap(methods=["GET", "PATCH", "DELETE"], pattern=r"^/api/v1/ppt/slide/\{presentation_id\}/\{slide_id\}$", mcp_type=MCPType.TOOL),
+    RouteMap(methods=["POST"], pattern=r"^/api/v1/ppt/slide/\{presentation_id\}$", mcp_type=MCPType.TOOL),
+    RouteMap(methods=["POST"], pattern=r"^/api/v1/ppt/slide/\{presentation_id\}/order$", mcp_type=MCPType.TOOL),
+]
+
 MCP_TOOL_NAMES = {
+    "get_all_presentations_api_v1_ppt_presentation_all_get": "list_presentations",
+    "get_presentation_api_v1_ppt_presentation__id__get": "get_presentation",
+    "create_blank_presentation_api_v1_ppt_presentation_create_blank_post": "create_presentation",
     "generate_presentation_async_api_v1_ppt_presentation_generate_async_post": (
         "start_standard_presentation"
     ),
@@ -121,6 +133,7 @@ def get_mcp_route_maps(
     if generation_mode in {"both", "smart"}:
         route_maps.extend(MCP_SMART_ROUTE_MAPS)
     route_maps.extend(MCP_SHARED_ROUTE_MAPS)
+    route_maps.extend(MCP_EDITING_ROUTE_MAPS)
     route_maps.append(RouteMap(mcp_type=MCPType.EXCLUDE))
     return route_maps
 
@@ -170,6 +183,19 @@ source of truth for IDs, paths, URLs, job state, and generated assets.
 5. Start one asynchronous job for one requested result. Do not start a duplicate job
    merely because the first job is still pending.
 6. Never ask the user to paste a Presenton API key into chat.
+
+# Edit an existing presentation
+
+1. Use list_presentations and get_presentation to inspect the saved deck and edit_revision.
+2. Use get_slide with both presentation_id and slide_id to inspect one slide.
+3. Use update_slide with expected_revision and changes. Send only the fields you intend
+   to change. A supplied content object replaces that object, so preserve its other fields.
+4. Read the new edit_revision after each successful mutation. Use add_slide, delete_slide
+   and reorder_slides only when that structural change was requested.
+5. On HTTP 409, stop editing and read the current deck. Never retry a stale change with
+   an invented or automatically substituted revision.
+6. Re-read the saved presentation to verify the requested result. create_presentation
+   creates a blank editable deck when a new deck was requested.
 
 # Choose the workflow
 
