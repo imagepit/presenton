@@ -2,7 +2,7 @@ name: Test All Applications
 
 on:
   push:
-    branches: [main, imagepit-v0.9.12-beta, 'codex/core165-ci']
+    branches: [main, imagepit-v0.9.12-beta]
   pull_request:
     branches: [main, imagepit-v0.9.12-beta, 'codex/core*']
   workflow_dispatch:
