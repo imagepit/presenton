@@ -977,3 +977,13 @@ Prepend your server’s root URL to <code>path</code> and
 ### 🚀 Roadmap
 
 Track the public roadmap on GitHub Projects: [https://github.com/orgs/presenton/projects/2](https://github.com/orgs/presenton/projects/2)
+
+## IMAGEPITの編集版と競合処理
+
+デッキ取得APIが返す `edit_revision` は編集内容の版です。保存形式を示す `version` と独立して管理します。既存デッキは起動時のAlembic移行で0から開始します。
+
+`PATCH /api/v1/ppt/presentation/update` と `PATCH /api/v1/ppt/presentation/slide_update` には取得時の `expected_revision` を渡します。未指定は428、版不一致は409です。409の `detail.current_revision` を使い、再取得した内容を確認してから編集し直します。スライド更新後の版は `X-Presentation-Revision` レスポンスヘッダーで返します。
+
+保存・チャット・AI編集・生成チェックポイントは、同じトランザクション内でデッキの所有者と版を照合します。デッキ全体の置換ではIDの重複と別デッキのスライド混入も拒否します。Webの自動保存は409または428で停止し、再読み込みを案内します。
+
+バックエンドの確認は `servers/fastapi` で `python -m pytest tests/integration/test_slide_edit_api.py tests/integration/test_presentation_generation_flow.py tests/unit/test_migrations.py`、フロントエンドの確認は `servers/nextjs` で `npx tsc --noEmit` と `node --test tests/presentation-autosave.test.mjs` を実行します。

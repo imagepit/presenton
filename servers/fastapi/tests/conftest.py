@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -27,6 +28,12 @@ class FakeAsyncSession:
 
     async def commit(self) -> None:
         self.commit_count += 1
+
+    async def run_sync(self, callback):
+        session = MagicMock()
+        session.info = {}
+        session.execute.return_value.rowcount = 1
+        return callback(session)
 
     async def rollback(self) -> None:
         return None

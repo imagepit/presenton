@@ -4,7 +4,8 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import delete
+from services.slide_service import claim_revision
+from sqlalchemy import inspect, delete
 
 from models.sql.presentation import PresentationModel, PresentationVersion
 from models.sql.slide import SlideModel
@@ -214,6 +215,8 @@ async def persist_cloud_presentation_complete(
                 )
             )
 
+        if inspect(presentation).persistent:
+            await session.run_sync(lambda sync_session: claim_revision(sync_session, presentation))
         await session.execute(
             delete(SlideModel).where(SlideModel.presentation == presentation_id)
         )

@@ -257,3 +257,67 @@ def test_failed_ai_edit_leaves_saved_slide_unchanged(slide_edit_client):
     assert harness.client.get(url).json()["slides"] == before
     harness.assets.assert_not_awaited()
     harness.memory.assert_not_awaited()
+
+
+def test_autosave_requires_revision_and_preserves_first_save(slide_edit_client):
+    client = slide_edit_client.client
+    deck, slide = _seed_deck(slide_edit_client.sessions)
+    url = f"/api/v1/ppt/presentation/{deck.id}"
+    before = client.get(url).json()
+    assert before["edit_revision"] == 0
+    missing = client.patch("/api/v1/ppt/presentation/update", json={"id": str(deck.id), "title": "Missing"})
+    assert missing.status_code == 428
+    first = client.patch("/api/v1/ppt/presentation/update", json={"id": str(deck.id), "title": "First", "expected_revision": 0})
+    assert first.status_code == 200, first.text
+    assert first.json()["edit_revision"] == 1
+    stale_slide = {**before["slides"][0], "speaker_note": "Stale"}
+    stale = client.patch("/api/v1/ppt/presentation/slide_update", json={"slide": stale_slide, "expected_revision": 0})
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["current_revision"] == 1
+    after = client.get(url).json()
+    assert after["title"] == "First"
+    assert after["slides"] == before["slides"]
+    saved = client.patch("/api/v1/ppt/presentation/slide_update", json={"slide": stale_slide, "expected_revision": 1})
+    assert saved.status_code == 200, saved.text
+    assert saved.headers["X-Presentation-Revision"] == "2"
+
+
+def test_whole_deck_save_is_atomic_and_checks_slide_membership(slide_edit_client):
+    client = slide_edit_client.client
+    first, slide = _seed_deck(slide_edit_client.sessions)
+    second, other = _seed_deck(slide_edit_client.sessions)
+    first_url = f"/api/v1/ppt/presentation/{first.id}"
+    original = client.get(first_url).json()
+    invalid = client.patch("/api/v1/ppt/presentation/update", json={
+        "id": str(first.id), "expected_revision": 0,
+        "title": "Must roll back", "slides": [other.model_dump(mode="json")],
+    })
+    assert invalid.status_code == 422, invalid.text
+    assert client.get(first_url).json() == original
+    changed_slide = {**original["slides"][0], "speaker_note": "Kept"}
+    saved = client.patch("/api/v1/ppt/presentation/update", json={
+        "id": str(first.id), "expected_revision": 0, "slides": [changed_slide],
+    })
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["edit_revision"] == 1
+    assert client.get(first_url).json()["slides"][0]["speaker_note"] == "Kept"
+    assert client.get(f"/api/v1/ppt/presentation/{second.id}").json()["slides"][0]["id"] == str(other.id)
+
+
+def test_late_ai_edit_cannot_overwrite_a_newer_save(slide_edit_client):
+    harness = slide_edit_client
+    deck, slide = _seed_deck(harness.sessions)
+    async def edit_after_concurrent_save(*_args):
+        async with harness.sessions() as session:
+            newer = await session.get(PresentationModel, deck.id)
+            newer.title = "Concurrent save"
+            await session.commit()
+        return {"hero": {"headline": "Late AI"}}
+    harness.editor.side_effect = edit_after_concurrent_save
+    response = harness.client.post("/api/v1/ppt/slide/edit", json={"id": str(slide.id), "prompt": "Edit"})
+    assert response.status_code == 409, response.text
+    after = harness.client.get(f"/api/v1/ppt/presentation/{deck.id}").json()
+    assert after["title"] == "Concurrent save"
+    assert after["edit_revision"] == 1
+    assert after["slides"][0]["id"] == str(slide.id)
+    assert after["slides"][0]["content"] == slide.content

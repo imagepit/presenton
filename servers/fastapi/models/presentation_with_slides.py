@@ -10,6 +10,7 @@ from models.sql.slide import SlideModel
 class PresentationWithSlides(BaseModel):
     id: uuid.UUID
     version: Optional[str] = None
+    edit_revision: int = 0
     content: str
     n_slides: int
     language: str

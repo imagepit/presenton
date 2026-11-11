@@ -2,6 +2,9 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '@/store/store';
+import { setEditRevision } from '@/store/slices/presentationGeneration';
+import { ApiResponseError } from '../../services/api/api-error-handler';
+import { notify } from '@/components/ui/sonner';
 import { PresentationGenerationApi } from '../../services/api/presentation-generation';
 import { addToHistory } from '@/store/slices/undoRedoSlice';
 import type { PresentationData } from '@/store/slices/presentationGeneration';
@@ -29,6 +32,15 @@ export const useAutoSave = ({
         (state: RootState) => state.presentationGeneration
     );
 
+    const revisionRef = useRef(presentationData?.edit_revision);
+    const saveBlockedRef = useRef(false);
+    useEffect(() => {
+        revisionRef.current = presentationData?.edit_revision;
+    }, [presentationData?.id, presentationData?.edit_revision]);
+    useEffect(() => {
+        saveBlockedRef.current = false;
+    }, [presentationData?.id]);
+
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const acknowledgedDataRef = useRef<AutoSaveSnapshot | null>(null);
     const latestDataRef = useRef<PresentationData | null>(presentationData);
@@ -49,7 +61,7 @@ export const useAutoSave = ({
 
     const saveLatest = useCallback(async () => {
         const data = latestDataRef.current;
-        if (!data || autoSavePausedRef.current) return;
+        if (!data || autoSavePausedRef.current || saveBlockedRef.current) return;
         if (isSavingRef.current) {
             pendingSaveRef.current = true;
             return;
@@ -68,65 +80,68 @@ export const useAutoSave = ({
             changes.changedSlides.length === 0
         ) return;
 
+        const acknowledgeRevision = (revision: number) => {
+            revisionRef.current = revision;
+            dispatch(setEditRevision({ id: data.id, revision }));
+        };
+
         try {
             isSavingRef.current = true;
             setIsSaving(true);
             console.log('🔄 Auto-saving presentation data...');
 
             if (changes.structuralChange) {
-                // Serialize once after the debounce window. The API accepts the
-                // serialized body and avoids a second whole-deck stringify.
-                await PresentationGenerationApi.updatePresentationContent(
-                    JSON.stringify(createPresentationUpdatePayload(data))
-                );
+                const saved = await PresentationGenerationApi.updatePresentationContent({
+                    ...createPresentationUpdatePayload(data),
+                    expected_revision: revisionRef.current,
+                });
+                acknowledgeRevision(saved.edit_revision);
                 acknowledgedDataRef.current = createAutoSaveSnapshot(data);
             } else {
-                let firstError: unknown = null;
                 const nextAcknowledged: AutoSaveSnapshot = {
                     ...acknowledged,
                     slideFingerprints: { ...acknowledged.slideFingerprints },
                 };
 
                 if (changes.metadataChanged) {
-                    try {
-                        await PresentationGenerationApi.updatePresentationContent({
-                            id: data.id,
-                            title: data.title,
-                        });
-                        nextAcknowledged.metadataFingerprint = fingerprintValue({
-                            title: data.title,
-                        });
-                        acknowledgedDataRef.current = nextAcknowledged;
-                    } catch (error) {
-                        firstError = error;
-                    }
+                    const saved = await PresentationGenerationApi.updatePresentationContent({
+                        id: data.id,
+                        title: data.title,
+                        expected_revision: revisionRef.current,
+                    });
+                    acknowledgeRevision(saved.edit_revision);
+                    nextAcknowledged.metadataFingerprint = fingerprintValue({
+                        title: data.title,
+                    });
+                    acknowledgedDataRef.current = nextAcknowledged;
                 }
 
                 for (const slide of changes.changedSlides) {
-                    try {
-                        await PresentationGenerationApi.updatePresentationSlide(
-                            slide as Slide
-                        );
-                        nextAcknowledged.slideFingerprints[slide.id] =
-                            fingerprintValue(slide);
-                        acknowledgedDataRef.current = nextAcknowledged;
-                    } catch (error) {
-                        firstError ??= error;
-                    }
+                    const saved = await PresentationGenerationApi.updatePresentationSlide(
+                        slide as Slide, revisionRef.current
+                    );
+                    acknowledgeRevision(saved.edit_revision);
+                    nextAcknowledged.slideFingerprints[slide.id] =
+                        fingerprintValue(slide);
+                    acknowledgedDataRef.current = nextAcknowledged;
                 }
 
-                if (firstError) throw firstError;
                 acknowledgedDataRef.current = createAutoSaveSnapshot(data);
             }
 
             console.log('✅ Auto-save successful');
         } catch (error) {
             console.error('❌ Auto-save failed:', error);
+            if (error instanceof ApiResponseError && (error.status === 409 || error.status === 428)) {
+                saveBlockedRef.current = true;
+                pendingSaveRef.current = false;
+                notify.error('Presentation changed', 'Saving is paused. Reload this presentation to get the latest changes.');
+            }
         } finally {
             isSavingRef.current = false;
             setIsSaving(false);
 
-            if (pendingSaveRef.current && !autoSavePausedRef.current) {
+            if (pendingSaveRef.current && !autoSavePausedRef.current && !saveBlockedRef.current) {
                 pendingSaveRef.current = false;
                 saveTimeoutRef.current = setTimeout(() => {
                     void saveLatestRef.current();

@@ -27,6 +27,7 @@ from models.sql.user import User
 from models.sql.provider_settings import ProviderSettings
 from models.sql.presenton_cloud_provider import PresentonCloudProvider
 from api.v1.auth.context import get_current_owner_id
+from services.slide_service import protect_presentation_writes, clear_revision_claims
 from utils.get_env import get_migrate_database_on_startup_env
 from utils.db_utils import get_database_url_and_connect_args, get_pool_kwargs
 
@@ -106,6 +107,11 @@ def _stamp_new_owned_rows(session, _flush_context, _instances) -> None:
     for instance in session.new:
         if isinstance(instance, owner_models):
             instance.owner_id = owner_id
+
+
+event.listen(Session, "before_flush", protect_presentation_writes)
+event.listen(Session, "after_commit", clear_revision_claims)
+event.listen(Session, "after_rollback", clear_revision_claims)
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:

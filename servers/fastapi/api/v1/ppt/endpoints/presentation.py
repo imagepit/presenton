@@ -1,3 +1,4 @@
+from fastapi import Response
 import asyncio
 import copy
 from datetime import datetime
@@ -57,6 +58,7 @@ from utils.llm_calls.generate_presentation_outlines import (
     get_messages as get_outline_messages,
 )
 from models.sql.slide import SlideModel
+from services.slide_service import require_revision, claim_revision
 from models.sse_response import (
     SSECompleteResponse,
     SSEErrorResponse,
@@ -1629,6 +1631,7 @@ async def regenerate_smart_presentation(
 
     # Reset only on an explicit regeneration request. SSE reconnects must
     # continue using saved checkpoints instead of restarting generation.
+    await sql_session.run_sync(lambda session: claim_revision(session, presentation))
     await sql_session.execute(
         delete(SlideModel).where(
             SlideModel.presentation == id,
@@ -1933,8 +1936,10 @@ async def stream_smart_presentation(
 ) -> StreamingResponse:
     presentation_id = presentation.id
     requested_slide_count = resolve_smart_slide_count(presentation.n_slides)
+    generation_revision = presentation.edit_revision
 
     async def inner():
+        nonlocal generation_revision
         slide_count = requested_slide_count
         presentation.n_slides = slide_count
         existing_slides = list(
@@ -2031,6 +2036,7 @@ async def stream_smart_presentation(
         # persisting the resolved slide count and fonts for reconnects.
         sql_session.add(presentation)
         await sql_session.commit()
+        generation_revision = presentation.edit_revision
         yield SSEResponse(
             event="response",
             data=json.dumps({"type": "fonts", "fonts": presentation.fonts}),
@@ -2052,6 +2058,7 @@ async def stream_smart_presentation(
         generation_events: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
 
         async def emit_slide(index: int, slide: dict[str, str]) -> None:
+            nonlocal generation_revision
             if index < 0 or index >= slide_count:
                 return
             streamed_slide = streamed_slides.get(index)
@@ -2075,6 +2082,10 @@ async def stream_smart_presentation(
             # or the SSE client reconnects, generation resumes after this slide
             # instead of throwing away the accepted prefix.
             async with async_session_maker() as checkpoint_session:
+                checkpoint_presentation = await checkpoint_session.get(PresentationModel, presentation_id)
+                if checkpoint_presentation is None:
+                    raise HTTPException(404, "Presentation not found")
+                require_revision(checkpoint_presentation, generation_revision)
                 checkpoint = (
                     await checkpoint_session.scalars(
                         select(SlideModel).where(
@@ -2103,14 +2114,11 @@ async def stream_smart_presentation(
                     checkpoint.html_content = slide["html"]
                     checkpoint.speaker_note = ""
                 checkpoint_session.add(checkpoint)
-                checkpoint_presentation = await checkpoint_session.get(
-                    PresentationModel, presentation_id
-                )
-                if checkpoint_presentation is not None:
-                    checkpoint_presentation.n_slides = slide_count
-                    checkpoint_presentation.fonts = presentation.fonts
-                    checkpoint_session.add(checkpoint_presentation)
+                checkpoint_presentation.n_slides = slide_count
+                checkpoint_presentation.fonts = presentation.fonts
+                checkpoint_session.add(checkpoint_presentation)
                 await checkpoint_session.commit()
+                generation_revision = checkpoint_presentation.edit_revision
             await generation_events.put(("slide", streamed_slide))
 
         async def emit_metrics(metrics: TextGenerationMetrics) -> None:
@@ -2200,6 +2208,7 @@ async def stream_smart_presentation(
         final_presentation = await sql_session.get(PresentationModel, presentation_id)
         if final_presentation is None:
             raise HTTPException(status_code=404, detail="Presentation not found")
+        require_revision(final_presentation, generation_revision)
         slides = list(
             await sql_session.scalars(
                 select(SlideModel)
@@ -2486,13 +2495,13 @@ async def stream_presentation(
             slide.ui = _apply_template_content_to_ui(slide.ui, slide.content)
 
         # Moved this here to make sure new slides are generated before deleting the old ones
+        await sql_session.run_sync(lambda session: claim_revision(session, presentation))
         await sql_session.execute(
             delete(SlideModel).where(
                 SlideModel.presentation == id,
                 SlideModel.owner_id == get_current_owner_id(),
             )
         )
-        await sql_session.commit()
 
         sql_session.add(presentation)
         sql_session.add_all(slides)
@@ -2526,6 +2535,7 @@ async def stream_presentation(
 @PRESENTATION_ROUTER.patch("/update", response_model=PresentationWithSlides)
 async def update_presentation(
     id: Annotated[uuid.UUID, Body()],
+    expected_revision: Annotated[Optional[int], Body(ge=0)] = None,
     n_slides: Annotated[Optional[int], Body()] = None,
     title: Annotated[Optional[str], Body()] = None,
     slides: Annotated[Optional[List[SlideModel]], Body()] = None,
@@ -2534,6 +2544,8 @@ async def update_presentation(
     presentation = await sql_session.get(PresentationModel, id)
     if not presentation:
         raise HTTPException(status_code=404, detail="Presentation not found")
+
+    require_revision(presentation, expected_revision)
 
     presentation_update_dict = {}
     if n_slides is not None:
@@ -2553,23 +2565,36 @@ async def update_presentation(
 
     if presentation_update_dict:
         presentation.sqlmodel_update(presentation_update_dict)
-    if slides:
-        if len(slides) > MAX_NUMBER_OF_SLIDES:
+    if slides is not None:
+        if not slides or len(slides) > MAX_NUMBER_OF_SLIDES:
             raise HTTPException(
                 status_code=400,
                 detail=f"Number of slides cannot be greater than {MAX_NUMBER_OF_SLIDES}",
             )
-        # Just to make sure id is UUID
-        for slide in slides:
-            slide.presentation = uuid.UUID(slide.presentation)
-            slide.id = uuid.UUID(slide.id)
-
+        try:
+            for slide in slides:
+                slide.presentation = uuid.UUID(str(slide.presentation))
+                slide.id = uuid.UUID(str(slide.id))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise HTTPException(422, "Slide and presentation IDs must be valid UUIDs") from exc
+        if len({slide.id for slide in slides}) != len(slides):
+            raise HTTPException(422, "Duplicate slide IDs")
+        existing_ids = list(await sql_session.scalars(select(SlideModel.id).where(
+            SlideModel.id.in_([slide.id for slide in slides]),
+            SlideModel.presentation != id,
+        ).execution_options(skip_owner_scope=True)))
+        if existing_ids or any(str(slide.presentation) != str(id) for slide in slides):
+            raise HTTPException(422, "Slide does not belong to the supplied presentation")
+        await sql_session.run_sync(lambda session: claim_revision(session, presentation))
         await sql_session.execute(
             delete(SlideModel).where(
                 SlideModel.presentation == presentation.id,
                 SlideModel.owner_id == get_current_owner_id(),
             )
         )
+        for index, slide in enumerate(slides):
+            slide.index = index
+        presentation.n_slides = len(slides)
         sql_session.add_all(slides)
 
     await sql_session.commit()
@@ -2584,6 +2609,8 @@ async def update_presentation(
 @PRESENTATION_ROUTER.patch("/slide_update", response_model=SlideModel)
 async def update_presentation_slide(
     slide: Annotated[SlideModel, Body(embed=True)],
+    response: Response,
+    expected_revision: Annotated[Optional[int], Body(ge=0)] = None,
     sql_session: AsyncSession = Depends(get_async_session),
 ):
     try:
@@ -2605,14 +2632,20 @@ async def update_presentation_slide(
             detail="Slide does not belong to the supplied presentation",
         )
 
+    presentation = await sql_session.get(PresentationModel, presentation_id)
+    if not presentation:
+        raise HTTPException(404, "Presentation not found")
+    require_revision(presentation, expected_revision)
+
     stored_slide.sqlmodel_update(
         slide.model_dump(
-            exclude={"id", "presentation", "index"},
+            exclude={"id", "owner_id", "presentation", "index"},
         )
     )
     sql_session.add(stored_slide)
     await sql_session.commit()
     await sql_session.refresh(stored_slide)
+    response.headers["X-Presentation-Revision"] = str(presentation.edit_revision)
     return stored_slide
 
 
@@ -3325,6 +3358,7 @@ async def edit_presentation_with_new_content(
             new_slides.append(new_slide)
             slides_to_delete.append(each_slide.id)
 
+    await sql_session.run_sync(lambda session: claim_revision(session, presentation))
     await sql_session.execute(
         delete(SlideModel).where(
             SlideModel.id.in_(slides_to_delete),
