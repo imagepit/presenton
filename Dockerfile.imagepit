@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:22-bookworm-slim AS nextjs-builder
+
+WORKDIR /app/servers/nextjs
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY servers/nextjs/package.json servers/nextjs/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+
+COPY servers/nextjs ./
+RUN npm run build && rm -rf .next-build/cache
+
+FROM ghcr.io/presenton/presenton:v0.9.12-beta@sha256:18b7331753e133de2272db1b2ab0d92de75a8fc6c14e1dea81bb8a9edb8a4e95
+
+COPY servers/fastapi/constants/llm.py /app/servers/fastapi/constants/llm.py
+COPY --from=nextjs-builder /app/servers/nextjs/.next-build/standalone/ /app/servers/nextjs/
+COPY --from=nextjs-builder /app/servers/nextjs/public /app/servers/nextjs/public
+COPY --from=nextjs-builder /app/servers/nextjs/.next-build/static /app/servers/nextjs/.next-build/static
