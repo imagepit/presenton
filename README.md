@@ -1,3 +1,27 @@
+## IMAGEPITでの検証
+
+このフォークの基点は上流の [v0.9.12-beta](https://github.com/presenton/presenton/releases/tag/v0.9.12-beta)
+（`93b9dcf947f70ae107b779b51dd3c491e736748a`）です。
+派生ブランチへのPRでは、上流と同じリポジトリ検査、FastAPI、Next.js、Cypressを
+GitHub Actionsの「Test All Applications」で実行します。
+
+編集PoCを含む派生版をローカルで確認するには、対象コミットをチェックアウトして実行します。
+
+```sh
+docker buildx build --platform linux/amd64 -f Dockerfile.imagepit \
+  -t presenton:verify --load .
+docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' presenton:verify
+docker volume create presenton-verify
+docker run --rm --platform linux/amd64 --name presenton-verify \
+  -p 127.0.0.1:18080:80 -v presenton-verify:/app_data \
+  -e DISABLE_AUTH=false -e MIGRATE_DATABASE_ON_STARTUP=true \
+  -e DISABLE_ANONYMOUS_TRACKING=true presenton:verify
+```
+
+ブラウザで `http://localhost:18080` を開き、検証用の管理者を設定します。
+デッキを作成・保存してコンテナを停止し、同じボリュームで起動してデッキを開き直します。
+検証結果にはソースのコミットとイメージIDを残します。
+
 <p align="center">
   <img src="./readme_assets/images/logo.png" alt="Presenton" />
 </p>

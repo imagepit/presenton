@@ -69,7 +69,7 @@ def test_presentation_updates_preserve_template_theme(update):
     presentation = _presentation()
     original_theme = copy.deepcopy(presentation.theme)
     session = FakeAsyncSession(get_results={presentation.id: presentation})
-    body = {"id": str(presentation.id), **copy.deepcopy(update)}
+    body = {"id": str(presentation.id), "expected_revision": presentation.edit_revision, **copy.deepcopy(update)}
     for slide in body.get("slides", []):
         slide["presentation"] = str(presentation.id)
 
