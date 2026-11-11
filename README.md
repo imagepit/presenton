@@ -1,3 +1,27 @@
+## IMAGEPITでの検証
+
+このフォークの基点は上流の [v0.9.12-beta](https://github.com/presenton/presenton/releases/tag/v0.9.12-beta)
+（`93b9dcf947f70ae107b779b51dd3c491e736748a`）です。
+派生ブランチへのPRでは、上流と同じリポジトリ検査、FastAPI、Next.js、Cypressを
+GitHub Actionsの「Test All Applications」で実行します。
+
+編集PoCを含む派生版をローカルで確認するには、対象コミットをチェックアウトして実行します。
+
+```sh
+docker buildx build --platform linux/amd64 -f Dockerfile.imagepit \
+  -t presenton:verify --load .
+docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Id}}' presenton:verify
+docker volume create presenton-verify
+docker run --rm --platform linux/amd64 --name presenton-verify \
+  -p 127.0.0.1:18080:80 -v presenton-verify:/app_data \
+  -e DISABLE_AUTH=false -e MIGRATE_DATABASE_ON_STARTUP=true \
+  -e DISABLE_ANONYMOUS_TRACKING=true presenton:verify
+```
+
+ブラウザで `http://localhost:18080` を開き、検証用の管理者を設定します。
+デッキを作成・保存してコンテナを停止し、同じボリュームで起動してデッキを開き直します。
+検証結果にはソースのコミットとイメージIDを残します。
+
 <p align="center">
   <img src="./readme_assets/images/logo.png" alt="Presenton" />
 </p>
@@ -1007,3 +1031,16 @@ Track the public roadmap on GitHub Projects: [https://github.com/orgs/presenton/
 追加は `expected_revision`、`layout_group`、`layout`、`content` を指定し、`position` で挿入位置を選べます。IDはサーバーが発行します。削除には `expected_revision` を渡し、最後の1枚は保持します。並べ替えの `slide_ids` には全スライドIDを重複なく列挙します。各変更後の応答で新しい `edit_revision` を取得します。
 
 キーはリポジトリに保存せず、専用クライアントの保管先から読み込みます。値をログや作業項目に出力しません。
+
+## MCPによる直接編集
+
+標準のStreamable HTTPとBearer認証を使います。既存の生成・テンプレート・ファイルアップロード・ジョブ確認に加え、次の編集ツールを全生成モードで公開します。
+
+- `list_presentations` と `get_presentation` で保存済みデッキと編集版を取得
+- `create_presentation` で空の編集可能なデッキを作成
+- `get_slide` と `update_slide` で指定したデッキの1枚を取得・更新
+- `add_slide`、`delete_slide`、`reorder_slides` で構成を変更
+
+更新ツールには取得時の `expected_revision` を渡します。409になったら保存を止め、デッキを取り直して変更内容を確認します。管理APIとデッキ削除は公開対象から除外しています。
+
+`servers/fastapi/openai_spec.json` は実際のFastAPIアプリの `app.openapi()` から生成します。APIを変更した場合はこのスキーマを更新し、`python -m pytest tests/unit/test_mcp_server_auth.py tests/integration/test_slide_edit_api.py` で公開範囲と読み書きを確認します。
