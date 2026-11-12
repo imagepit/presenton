@@ -1044,3 +1044,20 @@ Track the public roadmap on GitHub Projects: [https://github.com/orgs/presenton/
 更新ツールには取得時の `expected_revision` を渡します。409になったら保存を止め、デッキを取り直して変更内容を確認します。管理APIとデッキ削除は公開対象から除外しています。
 
 `servers/fastapi/openai_spec.json` は実際のFastAPIアプリの `app.openapi()` から生成します。APIを変更した場合はこのスキーマを更新し、`python -m pytest tests/unit/test_mcp_server_auth.py tests/integration/test_slide_edit_api.py` で公開範囲と読み書きを確認します。
+
+## Codex App Serverによる検索・画像生成の検証
+
+Codex本体が管理するChatGPTログインで、本文・Web検索・ImageGenを確認します。実行にはローカルの `codex` とNode.jsが必要です。
+
+```sh
+codex login status
+node scripts/presenton-codex-app-server-poc.mjs --model gpt-6.1-sol --out /tmp/presenton-codex-poc
+```
+
+スクリプトは公式のstdioプロトコルで `account/read`、`thread/start`、`turn/start` を使います。APIキーを子プロセスから除き、ChatGPTアカウントであることを確認してから処理を始めます。Web検索とImageGenの完了イベント、公式出典URL、PNGの保存を検査し、`result.json` と `image.png` を出力します。
+
+2026年11月11日の実測ではCodex CLI 0.163.0、gpt-6.1-sol、account type chatgpt、planType proliteで、RFC 2606の公式資料への検索・ページ取得とPNG1枚の生成が完了しました。出典とPNGをCORE-163の画像アップロード・MCP編集へ引き渡しています。ImageGenの実モデル名と利用枠の消費量は未確認です。
+
+失効した認証や利用上限に対して、キー認証へ切り替える処理はありません。Codexが返した失敗で検証を終了します。認証の失効と上限到達は今回実測していません。認証更新・上限・利用できる機能はアカウントとモデルの条件を公式資料で確認します。[Codex App Serverの資料](https://learn.chatgpt.com/docs/app-server)
+
+この検証はローカルのCodexが提供するImageGenを使います。PresentonのImages APIに設定済みのAPIクレジットとは別の認証経路です。
