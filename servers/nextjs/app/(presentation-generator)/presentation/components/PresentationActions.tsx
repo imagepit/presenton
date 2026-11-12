@@ -93,6 +93,7 @@ import {
 } from "../../_shared/blank-slide-prompt-event";
 import TemplateService from "../../services/api/template";
 import { TemplateV2HtmlSlidePreview } from "../../components/TemplateV2HtmlSlidePreview";
+import { ImagepitBlockSource, type ImagepitSlideBlock } from "@/lib/imagepit-slide-blocks";
 import { isTemplateFreePresentation } from "../../_shared/blank-slide";
 import {
   resolvePresentationTheme,
@@ -1449,6 +1450,7 @@ function templateMatchesLayoutIds(
 async function loadTemplateBlocksForPresentation(
   presentationData: unknown,
 ): Promise<TemplateBlockGroup[]> {
+  if (isTemplateFreePresentation(presentationData)) return [];
   const embeddedBlocks = templateBlockGroupsFromTemplate(presentationData);
   if (embeddedBlocks.length > 0) return embeddedBlocks;
 
@@ -1593,6 +1595,11 @@ function BlockVariantButton({
     >
       <div className="relative">
         <BlockThumbnail block={block} />
+        {block.key.startsWith("imagepit-") && (
+          <span className="block px-2 py-1.5 text-xs text-[#52525B]">
+            {block.title}
+          </span>
+        )}
         <span className="absolute right-1.5 top-1.5 flex h-7 w-7 scale-90 items-center justify-center rounded-full border border-[#E4E1FE] bg-white text-[#6938EF] opacity-0 shadow-[0_6px_16px_rgba(16,24,40,0.18)] transition-[opacity,transform] duration-150 group-hover:scale-100 group-hover:opacity-100 group-focus-visible:scale-100 group-focus-visible:opacity-100">
           <Plus className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden />
         </span>
@@ -1686,6 +1693,7 @@ export const BlocksPanel = ({
   onInsertBlock: (block: TemplateBlock) => void;
 }) => {
   const [blockPrompt, setBlockPrompt] = useState("");
+  const [imagepitBlocks, setImagepitBlocks] = useState<ImagepitSlideBlock[] | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [{ blocks, error, loading }, dispatchBlockState] = useReducer(
     blocksPanelReducer,
@@ -1696,9 +1704,25 @@ export const BlocksPanel = ({
     [presentationData, presentationId],
   );
   const visibleBlocks = useMemo(() => {
+    const groups = !imagepitBlocks?.length ? blocks : [
+      {
+        key: "imagepit",
+        title: "IMAGEPIT",
+        description: "IMAGEPIT design system",
+        variants: imagepitBlocks.map(({ key, title, component }, index) => ({
+          key: component.id ?? key,
+          title,
+          description: component.description ?? title,
+          elementCount: component.elements.length,
+          raw: component,
+          index,
+        })),
+      },
+      ...blocks,
+    ];
     const query = blockPrompt.trim().toLowerCase();
-    if (!query) return blocks;
-    return blocks.filter(
+    if (!query) return groups;
+    return groups.filter(
       (group) =>
         group.title.toLowerCase().includes(query) ||
         group.description.toLowerCase().includes(query) ||
@@ -1708,7 +1732,7 @@ export const BlocksPanel = ({
             variant.description.toLowerCase().includes(query),
         ),
     );
-  }, [blockPrompt, blocks]);
+  }, [blockPrompt, blocks, imagepitBlocks]);
   const visibleLayoutCount = useMemo(
     () =>
       visibleBlocks.reduce(
@@ -1792,7 +1816,7 @@ export const BlocksPanel = ({
           <h3 className="text-[15px] font-semibold leading-5 text-[#101323]">
             Blocks
           </h3>
-          {!loading && !error ? (
+          {!loading && imagepitBlocks && !error ? (
             <span className="text-[11px] tabular-nums text-[#A1A1AA]">
               {visibleLayoutCount}{" "}
               {visibleLayoutCount === 1 ? "Layout" : "Layouts"}
@@ -1802,6 +1826,7 @@ export const BlocksPanel = ({
       </div>
 
       <div className="px-[clamp(14px,1.4vw,20px)] pb-[clamp(24px,2.2vw,32px)] pt-2">
+        <ImagepitBlockSource onReady={setImagepitBlocks} />
         {loading && (
           <div className="space-y-4 py-2" aria-label="Loading block layouts">
             {[0, 1, 2].map((item) => (
@@ -1834,7 +1859,7 @@ export const BlocksPanel = ({
             </button>
           </div>
         )}
-        {!loading && !error && visibleBlocks.length === 0 && (
+        {!loading && imagepitBlocks && !error && visibleBlocks.length === 0 && (
           <div className="mt-4 rounded-[10px] border border-dashed border-[#D4D4D8] bg-[#FAFAFA] px-4 py-8 text-center">
             <Search className="mx-auto h-5 w-5 text-[#A1A1AA]" strokeWidth={1.7} aria-hidden />
             <p className="mt-2 text-[12px] font-medium text-[#52525B]">
@@ -1856,9 +1881,7 @@ export const BlocksPanel = ({
             ) : null}
           </div>
         )}
-        {!loading &&
-          !error &&
-          visibleBlocks.map((group) => (
+        {visibleBlocks.map((group) => (
             <BlockGroupCard
               key={`${group.key}:${searchActive ? "search" : "browse"}`}
               defaultExpanded
@@ -1926,12 +1949,10 @@ function PrimaryActionButton({
 function ActionsSidebar({
   activeAction,
   aiOnly = false,
-  blocksUnavailable = false,
   onActionSelect,
 }: {
   activeAction: ActionId;
   aiOnly?: boolean;
-  blocksUnavailable?: boolean;
   onActionSelect: (action: ActionId) => void;
 }) {
   return (
@@ -1956,7 +1977,6 @@ function ActionsSidebar({
                 <NavButton
                   item={item}
                   active={activeAction === item.id}
-                  disabled={item.id === "blocks" && blocksUnavailable}
                   onClick={() => onActionSelect(item.id)}
                 />
                 {item.id === "blocks" && (
@@ -1974,7 +1994,6 @@ function ActionsSidebar({
 function ActionsPanel({
   activeAction,
   aiOnly = false,
-  blocksUnavailable = false,
   chatProps,
   editingDisabled = false,
   onBlockSelect,
@@ -1990,7 +2009,6 @@ function ActionsPanel({
 }: {
   activeAction: ActionId;
   aiOnly?: boolean;
-  blocksUnavailable?: boolean;
   chatProps: Omit<
     PresentationActionsProps,
     | "editingDisabled"
@@ -2025,9 +2043,7 @@ function ActionsPanel({
           <Chat {...chatProps} presentationData={presentationData} inputDisabled={editingDisabled} />
         </div>
 
-        {!blocksUnavailable &&
-          !aiOnly &&
-          activeAction === "blocks" && (
+        {!aiOnly && activeAction === "blocks" && (
           <BlocksPanel
             disabled={editingDisabled}
             presentationId={presentationId}
@@ -2116,7 +2132,6 @@ const PresentationActions = (props: PresentationActionsProps) => {
     ...chatProps
   } = props;
   const aiOnly = props.presentationType === "smart";
-  const blocksUnavailable = isTemplateFreePresentation(presentationData);
   const templateTheme = useMemo(
     () => resolvePresentationTheme(presentationData),
     [presentationData],
@@ -2185,13 +2200,10 @@ const PresentationActions = (props: PresentationActionsProps) => {
       : chatProps.currentSlide;
 
   useEffect(() => {
-    if (
-      (aiOnly || (blocksUnavailable && activeAction === "blocks")) &&
-      activeAction !== "ai"
-    ) {
+    if (aiOnly && activeAction !== "ai") {
       dispatchUiState({ type: "selectAction", activeAction: "ai" });
     }
-  }, [activeAction, aiOnly, blocksUnavailable]);
+  }, [activeAction, aiOnly]);
 
   useEffect(() => {
     setHiddenSlideReference(null);
@@ -2370,8 +2382,6 @@ const PresentationActions = (props: PresentationActionsProps) => {
   };
 
   const handleBlockSelect = (block: TemplateBlock) => {
-    if (blocksUnavailable) return;
-
     if (
       isRecord(block.raw) &&
       hasUsableComponentSize(block.raw) &&
@@ -2417,10 +2427,6 @@ const PresentationActions = (props: PresentationActionsProps) => {
     if (aiOnly && nextAction !== "ai") {
       return;
     }
-    if (blocksUnavailable && nextAction === "blocks") {
-      return;
-    }
-
     if (panelOpen && nextAction === activeAction) {
       onPanelOpenChange(false);
       return;
@@ -2444,7 +2450,6 @@ const PresentationActions = (props: PresentationActionsProps) => {
         <ActionsPanel
           activeAction={activeAction}
           aiOnly={aiOnly}
-          blocksUnavailable={blocksUnavailable}
           chatProps={{
             ...chatProps,
             blankSlidePromptRequest,
@@ -2475,7 +2480,6 @@ const PresentationActions = (props: PresentationActionsProps) => {
       <ActionsSidebar
         activeAction={activeAction}
         aiOnly={aiOnly}
-        blocksUnavailable={blocksUnavailable}
         onActionSelect={handleActionSelect}
       />
     </div>
