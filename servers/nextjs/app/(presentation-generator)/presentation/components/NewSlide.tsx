@@ -21,10 +21,12 @@ import {
   type TemplateV2Layout,
 } from "@/components/slide-editor/importing/template-v2-import";
 import {
+  BLANK_SLIDE_LAYOUT_GROUP,
   BLANK_SLIDE_LAYOUT_ID,
   BLANK_TEMPLATE_V2_LAYOUT,
 } from "../../_shared/blank-slide";
 import { MAX_NUMBER_OF_SLIDES } from "@/utils/presentationLimits";
+import { ImagepitLayoutSource, type ImagepitSlideLayout } from "@/lib/imagepit-slide-layouts";
 import TemplateService from "../../services/api/template";
 
 interface LayoutItemProps {
@@ -180,6 +182,7 @@ const NewSlideV1 = ({
     const slides = state.presentationGeneration.presentationData?.slides;
     return Array.isArray(slides) ? slides.length : 0;
   });
+  const [imagepitLayouts, setImagepitLayouts] = useState<ImagepitSlideLayout[]>([]);
   const [layouts, setLayouts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -218,10 +221,9 @@ const NewSlideV1 = ({
         dispatch(addNewSlide({ slideData: newSlide, index }));
         onSlideAdded?.(
           index + 1,
-          {
+          id.startsWith("imagepit-") ? undefined : {
             promptOverlaySlideId: slideId,
-            promptOverlayKind:
-              id === BLANK_SLIDE_LAYOUT_ID ? "blank" : "layout",
+            promptOverlayKind: id === BLANK_SLIDE_LAYOUT_ID ? "blank" : "layout",
           },
         );
         trackEvent(MixpanelEvent.Presentation_Slide_Added, {
@@ -253,6 +255,12 @@ const NewSlideV1 = ({
     let isMounted = true;
 
     const fetchLayouts = async () => {
+      if (templateID === BLANK_SLIDE_LAYOUT_GROUP) {
+        setLayouts([]);
+        setLoadError(null);
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
         setLoadError(null);
@@ -305,7 +313,7 @@ const NewSlideV1 = ({
 
   const showEmptySlideLayout = true;
   const selectableLayouts = showEmptySlideLayout
-    ? [EMPTY_SLIDE_LAYOUT, ...layouts]
+    ? [EMPTY_SLIDE_LAYOUT, ...imagepitLayouts.map(createTemplateV2LayoutItem), ...layouts]
     : layouts;
   const layoutCountText = showEmptySlideLayout
     ? `${selectableLayouts.length} Option${selectableLayouts.length === 1 ? "" : "s"}`
@@ -319,6 +327,7 @@ const NewSlideV1 = ({
       aria-labelledby="choose-slide-layout-title"
       className="relative w-full rounded-[14px] border border-[#EDEEEF] bg-white font-syne shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
     >
+      <ImagepitLayoutSource onReady={setImagepitLayouts} />
       <button
         type="button"
         aria-label="Close layout picker"
