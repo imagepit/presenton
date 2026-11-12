@@ -51,6 +51,7 @@ function readLayout(section: HTMLElement, layout: (typeof layouts)[number]) {
       }];
     }
     const size = Number.parseFloat(style.fontSize);
+    const weight = Number(style.fontWeight);
     return [{
       type: "text",
       component_slot: slot,
@@ -64,7 +65,8 @@ function readLayout(section: HTMLElement, layout: (typeof layouts)[number]) {
         family: style.fontFamily,
         size,
         color: rgbToHex(style.color),
-        font_weight: Number(style.fontWeight),
+        font_weight: weight,
+        bold: weight >= 600,
         line_height: Number.parseFloat(style.lineHeight) / size || 1.2,
       },
     }];
