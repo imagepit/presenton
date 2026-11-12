@@ -1,15 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { TemplateV2InsertComponent } from "@/components/slide-editor/events/events";
 import { svgToDataUri } from "@/components/slide-editor/surface/exportAssets";
 import type { Font, SlideElement, Stroke, TableCell } from "@/components/slide-editor/types";
+import { renderImagepitMermaid } from "./imagepit-mermaid";
 import { imagepitBlockSamples, mermaidSource } from "./imagepit-block-samples";
 import { ImagepitCodeBlockView } from "@/components/slide-editor/code-blocks/ImagepitCodeBlockView";
-import { captureImagepitCodeBlock, IMAGEPIT_BLOCK_FRAME } from "./imagepit-code-block";
+import { captureImagepitCodeBlock, IMAGEPIT_BLOCK_FRAME, type ImagepitCodeBlockSource } from "./imagepit-code-block";
 
-const starterCode = {
+const starterCode: ImagepitCodeBlockSource = {
+  style: "slide",
   filename: "greet.ts",
   language: "typescript",
   code: 'function greet(name: string) {\n//highlightstart\n  return "Hello, " + name; // <--[Build the greeting]\n//highlightend\n}',
@@ -89,6 +91,7 @@ function readElements(root: HTMLElement, win: Window & typeof globalThis): Slide
         elements.push({
           type: "image", position, size, data,
           name: node.alt || undefined,
+          ...(node.dataset.mermaidSource ? { imagepit_mermaid_source: node.dataset.mermaidSource } : {}),
           fit: style.objectFit === "cover" ? "cover" : "contain",
         });
       }
@@ -214,23 +217,17 @@ export function ImagepitBlockSource({
     });
   }, []);
   const [diagram, setDiagram] = useState<string | null>(null);
-  const diagramId = `imagepit-mermaid-${useId().replace(/[^a-z0-9-]/gi, "")}`;
   const samples = useMemo(() => imagepitBlockSamples(diagram), [diagram]);
 
   useEffect(() => {
     let active = true;
-    void import("mermaid")
-      .then(async ({ default: mermaid }) => {
-        if (!active) return;
-        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", flowchart: { htmlLabels: false } });
-        const { svg } = await mermaid.render(diagramId, mermaidSource);
-        if (active) setDiagram(svgToDataUri(svg));
-      })
-      .catch(() => {
-        // The source remains editable if the diagram renderer is unavailable.
-      });
+    void renderImagepitMermaid(mermaidSource).then((data) => {
+      if (active) setDiagram(data);
+    }).catch(() => {
+      // Other blocks remain available if the diagram preview fails.
+    });
     return () => { active = false; };
-  }, [diagramId]);
+  }, []);
   useLayoutEffect(() => {
     if (!doc) return;
     const win = doc.defaultView;
@@ -239,6 +236,7 @@ export function ImagepitBlockSource({
     void doc.fonts.ready.then(() => {
       if (!active) return;
       const blocks = samples.flatMap(({ key, title }) => {
+        if (key === "mermaid-diagram" && !diagram) return [];
         const root = doc.getElementById(key);
         if (!root) return [];
         const elements = readElements(root, win);
@@ -257,7 +255,7 @@ export function ImagepitBlockSource({
       onReady(codeBlock ? [codeBlock, ...blocks] : blocks);
     });
     return () => { active = false; };
-  }, [codeBlock, doc, onReady, samples]);
+  }, [codeBlock, diagram, doc, onReady, samples]);
 
   return (
     <>

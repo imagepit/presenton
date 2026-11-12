@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { ImagepitCodeBlockView } from "./ImagepitCodeBlockView";
 import {
   captureImagepitCodeBlock,
   CODE_BLOCK_MAX_LENGTH,
+  codeBlockContentScale,
   IMAGEPIT_BLOCK_FRAME,
+  resolveCodeBlockRasterSize,
   type ImagepitCodeBlockSource,
 } from "@/lib/imagepit-code-block";
 
@@ -17,8 +19,12 @@ export function ImagepitCodeBlockEditor({
   initial,
   onSave,
   onClose,
+  frame,
+  element,
 }: {
   initial: ImagepitCodeBlockSource;
+  frame: { width: number; height: number };
+  element: Record<string, unknown>;
   onSave: (block: RenderedBlock) => void;
   onClose: () => void;
 }) {
@@ -27,19 +33,38 @@ export function ImagepitCodeBlockEditor({
   const [node, setNode] = useState<HTMLElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [scale, setScale] = useState<number | null>(null);
+  useEffect(() => {
+    let active = true;
+    void resolveCodeBlockRasterSize(element).then((raster) => {
+      if (active) setScale(codeBlockContentScale({ width: frame.width, height: frame.height }, raster));
+    });
+    return () => { active = false; };
+  }, [element, frame.width, frame.height]);
+  const rasterFrame = scale === null ? undefined : {
+    width: frame.width / scale,
+    height: frame.height / scale,
+  };
 
-  function update(field: keyof ImagepitCodeBlockSource, value: string) {
+  function update<Field extends keyof ImagepitCodeBlockSource>(
+    field: Field,
+    value: ImagepitCodeBlockSource[Field],
+  ) {
     setNode(null);
     setError(null);
     setSource((current) => ({ ...current, [field]: value }));
   }
 
   async function save() {
-    if (!node || saving) return;
+    if (!node || saving || !rasterFrame || scale === null) return;
     setSaving(true);
     setError(null);
     try {
-      onSave(await captureImagepitCodeBlock(node, source));
+      const block = await captureImagepitCodeBlock(node, source, rasterFrame);
+      onSave({
+        ...block,
+        size: { width: block.size.width * scale, height: block.size.height * scale },
+      });
       onClose();
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not save the code block.");
@@ -58,6 +83,14 @@ export function ImagepitCodeBlockEditor({
         <div className="grid gap-5 lg:grid-cols-[1fr_580px]">
           <fieldset disabled={saving} className="grid min-w-0 gap-3">
             <label className="grid gap-1 text-sm font-medium">
+              Style
+              <select className={inputClass} value={source.style}
+                onChange={(event) => update("style", event.target.value === "slide" ? "slide" : "web")}>
+                <option value="web">Web</option>
+                <option value="slide">Slide</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-medium">
               File name
               <input className={inputClass} maxLength={160} value={source.filename} onChange={(event) => update("filename", event.target.value)} />
             </label>
@@ -75,7 +108,7 @@ export function ImagepitCodeBlockEditor({
             <h3 className="mb-2 text-sm font-medium">Preview</h3>
             <iframe title="Code Block preview" sandbox="allow-same-origin" className="h-80 w-full rounded-md border border-[#D4D4D8]"
               srcDoc={IMAGEPIT_BLOCK_FRAME} onLoad={(event) => setDoc(event.currentTarget.contentDocument)} />
-            {doc?.body && createPortal(<ImagepitCodeBlockView source={source} onReady={setNode} onError={setError} />, doc.body)}
+            {doc?.body && rasterFrame && createPortal(<ImagepitCodeBlockView frame={rasterFrame} source={source} onReady={setNode} onError={setError} />, doc.body)}
           </section>
         </div>
         {error && <p role="alert" className="text-sm text-[#B42318]">{error}</p>}

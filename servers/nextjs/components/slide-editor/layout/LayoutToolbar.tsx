@@ -105,7 +105,7 @@ type TemplateV2LayoutToolbarProps = {
   onChartChange?: (element: ChartSlideElement) => void;
   onChartEdit?: () => void;
   onInfographicEdit?: () => void;
-  onCodeBlockEdit?: () => void;
+  sourceEdit?: { label: string; onClick: () => void };
   onTableChange?: (element: TableSlideElement) => void;
   selectedTableCell?: { rowIndex: number; colIndex: number } | null;
   position?: { left: number; top: number };
@@ -305,7 +305,7 @@ export function TemplateV2LayoutToolbar({
   onChartChange,
   onChartEdit,
   onInfographicEdit,
-  onCodeBlockEdit,
+  sourceEdit,
   onTableChange,
   selectedTableCell,
   position,
@@ -334,7 +334,7 @@ export function TemplateV2LayoutToolbar({
     hasContainerControls ||
     hasInfographicControls;
   const hasToolbarControls =
-    hasLayoutControls || hasChartControls || hasTableControls || Boolean(onCodeBlockEdit);
+    hasLayoutControls || hasChartControls || hasTableControls || Boolean(sourceEdit);
   const ungroupAction = componentActions?.canUngroup
     ? componentActions
     : flowUngroupAction?.canUngroup
@@ -360,10 +360,10 @@ export function TemplateV2LayoutToolbar({
         onPointerDown={(event) => event.stopPropagation()}
         className="fixed z-[10000] inline-flex items-center gap-[6px] rounded-[6px] bg-[#FFF] p-[6px] font-manrope text-[14px] font-medium leading-4 text-[#191919] shadow-[0_0_4px_rgba(0,0,0,0.15)]"
       >
-        {onCodeBlockEdit && (
-          <button type="button" aria-label="Edit Code Block" title="Edit Code Block"
+        {sourceEdit && (
+          <button type="button" aria-label={sourceEdit.label} title={sourceEdit.label}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-[#F6F6F9]"
-            onClick={onCodeBlockEdit}>
+            onClick={sourceEdit.onClick}>
             <Pencil size={16} aria-hidden />
           </button>
         )}
