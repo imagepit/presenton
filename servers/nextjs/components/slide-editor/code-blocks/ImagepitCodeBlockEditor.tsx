@@ -1,0 +1,91 @@
+"use client";
+
+import { useState } from "react";
+import { createPortal } from "react-dom";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { ImagepitCodeBlockView } from "./ImagepitCodeBlockView";
+import {
+  captureImagepitCodeBlock,
+  CODE_BLOCK_MAX_LENGTH,
+  IMAGEPIT_BLOCK_FRAME,
+  type ImagepitCodeBlockSource,
+} from "@/lib/imagepit-code-block";
+
+type RenderedBlock = Awaited<ReturnType<typeof captureImagepitCodeBlock>>;
+
+export function ImagepitCodeBlockEditor({
+  initial,
+  onSave,
+  onClose,
+}: {
+  initial: ImagepitCodeBlockSource;
+  onSave: (block: RenderedBlock) => void;
+  onClose: () => void;
+}) {
+  const [source, setSource] = useState(initial);
+  const [doc, setDoc] = useState<Document | null>(null);
+  const [node, setNode] = useState<HTMLElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  function update(field: keyof ImagepitCodeBlockSource, value: string) {
+    setNode(null);
+    setError(null);
+    setSource((current) => ({ ...current, [field]: value }));
+  }
+
+  async function save() {
+    if (!node || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      onSave(await captureImagepitCodeBlock(node, source));
+      onClose();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not save the code block.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputClass = "w-full rounded-md border border-[#D4D4D8] bg-white px-3 py-2 text-sm";
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
+      <DialogContent className="z-[11000] max-h-[90vh] w-[min(94vw,1200px)] max-w-none overflow-auto" data-inline-edit-ignore="true">
+        <DialogTitle>Edit Code Block</DialogTitle>
+        <DialogDescription>Edit the source and preview its line highlights and callouts.</DialogDescription>
+        <div className="grid gap-5 lg:grid-cols-[1fr_580px]">
+          <fieldset disabled={saving} className="grid min-w-0 gap-3">
+            <label className="grid gap-1 text-sm font-medium">
+              File name
+              <input className={inputClass} maxLength={160} value={source.filename} onChange={(event) => update("filename", event.target.value)} />
+            </label>
+            <label className="grid gap-1 text-sm font-medium">
+              Language
+              <input className={inputClass} maxLength={40} value={source.language} onChange={(event) => update("language", event.target.value)} />
+            </label>
+            <label className="grid gap-1 text-sm font-medium">
+              Code source
+              <textarea className={`${inputClass} min-h-64 font-mono`} spellCheck={false} maxLength={CODE_BLOCK_MAX_LENGTH}
+                value={source.code} onChange={(event) => update("code", event.target.value)} />
+            </label>
+          </fieldset>
+          <section aria-label="Code preview" aria-busy={!node && !error}>
+            <h3 className="mb-2 text-sm font-medium">Preview</h3>
+            <iframe title="Code Block preview" sandbox="allow-same-origin" className="h-80 w-full rounded-md border border-[#D4D4D8]"
+              srcDoc={IMAGEPIT_BLOCK_FRAME} onLoad={(event) => setDoc(event.currentTarget.contentDocument)} />
+            {doc?.body && createPortal(<ImagepitCodeBlockView source={source} onReady={setNode} onError={setError} />, doc.body)}
+          </section>
+        </div>
+        {error && <p role="alert" className="text-sm text-[#B42318]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" disabled={saving} className="rounded-md border px-4 py-2 text-sm" onClick={onClose}>Cancel</button>
+          <button type="button" disabled={saving || !node || !source.code.trim()}
+            className="rounded-md bg-[#6938EF] px-4 py-2 text-sm text-white disabled:opacity-50"
+            onClick={() => void save()}>{saving ? "Saving…" : "Save"}</button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

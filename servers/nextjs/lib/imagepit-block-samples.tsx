@@ -1,5 +1,4 @@
 import { Card, CardDescription, CardHeader, CardTitle } from "@imagepit/ui/card";
-import { CodeBlock } from "@imagepit/ui/code-block";
 import { CodeTree } from "@imagepit/ui/code-tree";
 import { ExecPair } from "@imagepit/ui/exec-pair";
 import { Figure } from "@imagepit/ui/figure";
@@ -16,13 +15,6 @@ const codeCapabilities = { copyButton: false };
 
 export function imagepitBlockSamples(diagram: string | null) {
   return [
-    {
-      key: "code-block",
-      title: "Code Block",
-      view: <CodeBlock filename="greet.ts" language="typescript"
-        code={'function greet(name: string) {\n  return "Hello, " + name;\n}'}
-        capabilities={codeCapabilities} />,
-    },
     {
       key: "code-tree",
       title: "Code Tree",

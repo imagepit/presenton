@@ -52,6 +52,8 @@ import {
 } from "@/components/slide-editor/state/state";
 import { ElementToolbar } from "@/components/slide-editor/toolbar/ElementToolbar";
 import { ChartDataEditorPopover } from "@/components/slide-editor/charts/ChartEditorContent";
+import { ImagepitCodeBlockEditor } from "@/components/slide-editor/code-blocks/ImagepitCodeBlockEditor";
+import { readImagepitCodeBlock } from "@/lib/imagepit-code-block";
 import { InfographicDataEditorPopover } from "@/components/slide-editor/infographics/InfographicEditorContent";
 import { InfographicItemToolbar } from "@/components/slide-editor/infographics/InfographicItemToolbar";
 import { InfographicPlainTextEditor } from "@/components/slide-editor/infographics/InfographicPlainTextEditor";
@@ -508,6 +510,8 @@ function TemplateV2KonvaSlideComponent({
     useState(false);
   const [chartEditorSelection, setChartEditorSelection] =
     useState<ElementSelection | null>(null);
+  const [codeBlockEditorSelection, setCodeBlockEditorSelection] =
+    useState<ElementSelection | null>(null);
   const [infographicEditorSelection, setInfographicEditorSelection] =
     useState<ElementSelection | null>(null);
 
@@ -690,6 +694,15 @@ function TemplateV2KonvaSlideComponent({
       uiDraft,
     ],
   );
+  const codeBlockTarget: ElementSelection | null =
+    selection?.kind === "element" ? selection
+      : selection?.kind === "component" && readArray(selectedComponent?.elements).length === 1
+        ? { kind: "element", componentIndex: selection.componentIndex, elementPath: [0] }
+        : null;
+  const codeBlockSelected = codeBlockTarget &&
+    readImagepitCodeBlock(getElementAtSelection(uiDraft, codeBlockTarget));
+  const codeBlockDraft = codeBlockEditorSelection &&
+    readImagepitCodeBlock(getElementAtSelection(uiDraft, codeBlockEditorSelection));
   const horizontalResizeOnly = false;
   const selectedIsVectorElement =
     selection?.kind === "element" &&
@@ -3152,6 +3165,9 @@ function TemplateV2KonvaSlideComponent({
             openChartEditor(chartToolbarTarget.selection);
           }
         }}
+        onCodeBlockEdit={codeBlockSelected && codeBlockTarget
+          ? () => setCodeBlockEditorSelection(codeBlockTarget)
+          : undefined}
         onInfographicEdit={() => {
           if (
             layoutToolbarTarget &&
@@ -3342,6 +3358,22 @@ function TemplateV2KonvaSlideComponent({
           onClose={closeChartEditor}
         />
       ) : null}
+      {isEditMode && codeBlockEditorSelection && codeBlockDraft && (
+        <ImagepitCodeBlockEditor
+          key={keyForSelection(codeBlockEditorSelection)}
+          initial={codeBlockDraft}
+          onSave={(next) => updateElement(codeBlockEditorSelection, (current) => {
+            const width = elementSize(current).width;
+            const size = next.size;
+            return {
+              ...current,
+              ...next,
+              size: size ? { width, height: width * size.height / size.width } : current.size,
+            };
+          })}
+          onClose={() => setCodeBlockEditorSelection(null)}
+        />
+      )}
       {isEditMode &&
         infographicEditorSelection &&
         infographicEditorElement &&
