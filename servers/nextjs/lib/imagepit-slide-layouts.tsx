@@ -11,6 +11,7 @@ import "@imagepit/slide-style/layout.css";
 import "@imagepit/slide-style/fonts.css";
 import { useLayoutEffect, useRef } from "react";
 import type { RawElement } from "@/components/slide-editor/model/core";
+import { insertedElementToComponent } from "@/components/slide-editor/model/inserted-content";
 
 const layouts = [
   { kind: "title-cover", name: "表紙", title: "プレゼンテーションのタイトル", lead: "サブタイトルを入力" },
@@ -75,8 +76,12 @@ function readLayout(section: HTMLElement, layout: (typeof layouts)[number]) {
     id: `imagepit-${layout.kind}`,
     description: `IMAGEPIT ${layout.name}`,
     background: rgbToHex(getComputedStyle(section).backgroundColor),
-    components: [],
-    elements,
+    components: elements
+      .filter((element) => element.type === "text")
+      .map((element, index) =>
+        insertedElementToComponent(element, undefined, index),
+      ),
+    elements: elements.filter((element) => element.type !== "text"),
   };
 }
 
