@@ -1,5 +1,4 @@
 import { Card, CardDescription, CardHeader, CardTitle } from "@imagepit/ui/card";
-import { CodeBlock } from "@imagepit/ui/code-block";
 import { CodeTree } from "@imagepit/ui/code-tree";
 import { ExecPair } from "@imagepit/ui/exec-pair";
 import { Figure } from "@imagepit/ui/figure";
@@ -16,13 +15,6 @@ const codeCapabilities = { copyButton: false };
 
 export function imagepitBlockSamples(diagram: string | null) {
   return [
-    {
-      key: "code-block",
-      title: "Code Block",
-      view: <CodeBlock filename="greet.ts" language="typescript"
-        code={'function greet(name: string) {\n  return "Hello, " + name;\n}'}
-        capabilities={codeCapabilities} />,
-    },
     {
       key: "code-tree",
       title: "Code Tree",
@@ -86,12 +78,11 @@ export function imagepitBlockSamples(diagram: string | null) {
       key: "mermaid-diagram",
       title: "Mermaid Diagram",
       view: <MermaidDiagram chart={mermaidSource} caption="図2　公開までの流れ">
-        {diagram && <>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={diagram} alt="下書き → 確認 → 公開" width={500} height={100}
+        {diagram && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={diagram} alt="Mermaid Diagram" data-mermaid-source={mermaidSource} width={500} height={100}
             style={{ display: "block", maxWidth: "100%", objectFit: "contain", margin: "0 auto" }} />
-          <pre className="ui-mermaid__fallback"><code>{mermaidSource}</code></pre>
-        </>}
+        )}
       </MermaidDiagram>,
     },
     {

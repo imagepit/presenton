@@ -52,6 +52,16 @@ import {
 } from "@/components/slide-editor/state/state";
 import { ElementToolbar } from "@/components/slide-editor/toolbar/ElementToolbar";
 import { ChartDataEditorPopover } from "@/components/slide-editor/charts/ChartEditorContent";
+import { ImagepitMermaidEditor } from "@/components/slide-editor/code-blocks/ImagepitMermaidEditor";
+import { readImagepitMermaid } from "@/lib/imagepit-mermaid";
+import { ImagepitCodeBlockEditor } from "@/components/slide-editor/code-blocks/ImagepitCodeBlockEditor";
+import { renderResizedCodeBlock } from "@/components/slide-editor/code-blocks/resizeCodeBlock";
+import {
+  codeBlockContentScale,
+  readImagepitCodeBlock,
+  resolveCodeBlockRasterSize,
+} from "@/lib/imagepit-code-block";
+import type { ComponentSideResizeAnchor } from "@/components/slide-editor/model/component-resize";
 import { InfographicDataEditorPopover } from "@/components/slide-editor/infographics/InfographicEditorContent";
 import { InfographicItemToolbar } from "@/components/slide-editor/infographics/InfographicItemToolbar";
 import { InfographicPlainTextEditor } from "@/components/slide-editor/infographics/InfographicPlainTextEditor";
@@ -508,6 +518,10 @@ function TemplateV2KonvaSlideComponent({
     useState(false);
   const [chartEditorSelection, setChartEditorSelection] =
     useState<ElementSelection | null>(null);
+  const [codeBlockEditorSelection, setCodeBlockEditorSelection] =
+    useState<ElementSelection | null>(null);
+  const [mermaidEditorSelection, setMermaidEditorSelection] =
+    useState<ElementSelection | null>(null);
   const [infographicEditorSelection, setInfographicEditorSelection] =
     useState<ElementSelection | null>(null);
 
@@ -690,6 +704,30 @@ function TemplateV2KonvaSlideComponent({
       uiDraft,
     ],
   );
+  const codeBlockTarget: ElementSelection | null =
+    selection?.kind === "element" ? selection
+      : selection?.kind === "component" && readArray(selectedComponent?.elements).length === 1
+        ? { kind: "element", componentIndex: selection.componentIndex, elementPath: [0] }
+        : null;
+  const codeBlockSelected = codeBlockTarget &&
+    readImagepitCodeBlock(getElementAtSelection(uiDraft, codeBlockTarget));
+  const codeBlockEditorElement = codeBlockEditorSelection
+    ? getElementAtSelection(uiDraft, codeBlockEditorSelection) : null;
+  const codeBlockDraft = readImagepitCodeBlock(codeBlockEditorElement);
+  const mermaidIndex = selection?.kind === "component"
+    ? readArray(selectedComponent?.elements).findIndex((element) => readImagepitMermaid(asRecord(element)) !== null)
+    : -1;
+  const mermaidTarget: ElementSelection | null =
+    selection?.kind === "component" && mermaidIndex >= 0
+      ? { kind: "element", componentIndex: selection.componentIndex, elementPath: [mermaidIndex] }
+      : selection?.kind === "element" &&
+          readImagepitMermaid(getElementAtSelection(uiDraft, selection)) !== null
+        ? selection
+        : null;
+  const mermaidEditorElement = mermaidEditorSelection
+    ? getElementAtSelection(uiDraft, mermaidEditorSelection)
+    : null;
+  const mermaidDraft = readImagepitMermaid(mermaidEditorElement);
   const horizontalResizeOnly = false;
   const selectedIsVectorElement =
     selection?.kind === "element" &&
@@ -1372,6 +1410,69 @@ function TemplateV2KonvaSlideComponent({
       commitUi(updateComponentInUi(currentUiRef.current, componentIndex, updater), pushHistory);
     },
     [commitUi],
+  );
+
+  const pendingCodeBlockResizes = useRef(new Map<RawComponent, object>());
+  const updateTransformedComponent = useCallback(
+    (
+      componentIndex: number,
+      updater: (component: RawComponent) => RawComponent,
+      sideAnchor: ComponentSideResizeAnchor | null,
+    ) => {
+      if (!sideAnchor) {
+        updateComponent(componentIndex, updater);
+        return;
+      }
+      const currentUi = currentUiRef.current;
+      const current = asRecord(readArray(currentUi.components)[componentIndex]);
+      if (!current) return;
+      const next = updater(current);
+      const oldElements = readArray(current.elements);
+      const newElements = readArray(next.elements);
+      const oldElement = oldElements.length === 1 ? asRecord(oldElements[0]) : null;
+      const source = readImagepitCodeBlock(oldElement);
+      const nextElement = asRecord(newElements[0]);
+      const oldBox = componentBox(current);
+      const nextBox = componentBox(next);
+
+      if (!source || !oldElement || !nextElement || newElements.length !== 1 ||
+          (oldBox.width === nextBox.width && oldBox.height === nextBox.height)) {
+        updateComponent(componentIndex, () => next);
+        return;
+      }
+
+      const pending = {};
+      pendingCodeBlockResizes.current.set(current, pending);
+      void (async () => {
+        const raster = await resolveCodeBlockRasterSize(oldElement);
+        const scale = codeBlockContentScale(elementSize(oldElement), raster);
+        const rendered = await renderResizedCodeBlock(source, {
+          width: nextBox.width / scale,
+          height: nextBox.height / scale,
+        });
+        const latest = currentUiRef.current;
+        if (pendingCodeBlockResizes.current.get(current) !== pending ||
+            readArray(latest.components)[componentIndex] !== current) return;
+        const width = rendered.size.width * scale;
+        const height = rendered.size.height * scale;
+        const x = sideAnchor === "middle-left" ? oldBox.x + oldBox.width - width : nextBox.x;
+        const y = sideAnchor === "top-center" ? oldBox.y + oldBox.height - height : nextBox.y;
+        updateComponent(componentIndex, () => ({
+          ...next,
+          position: { x, y },
+          elements: [{ ...nextElement, ...rendered, size: { width, height } }],
+        }));
+      })().catch(() => {
+        if (pendingCodeBlockResizes.current.get(current) === pending) {
+          notify.error("Could not resize the code block.");
+        }
+      }).finally(() => {
+        if (pendingCodeBlockResizes.current.get(current) === pending) {
+          pendingCodeBlockResizes.current.delete(current);
+        }
+      });
+    },
+    [updateComponent],
   );
 
   const componentAlignmentTargetBoxes = useCallback(
@@ -3020,7 +3121,7 @@ function TemplateV2KonvaSlideComponent({
               onTableCellEdit={editTableCell}
               onOpenElementEditor={handleElementDoubleClick}
               onInfographicTargetEdit={openInfographicCanvasTarget}
-              onComponentChange={updateComponent}
+              onComponentChange={updateTransformedComponent}
               onComponentDragStart={handleComponentDragStart}
               onComponentDragMove={handleComponentDragMove}
               onComponentDragEnd={handleComponentDragEnd}
@@ -3152,6 +3253,14 @@ function TemplateV2KonvaSlideComponent({
             openChartEditor(chartToolbarTarget.selection);
           }
         }}
+        sourceEdit={codeBlockSelected && codeBlockTarget ? {
+          label: "Edit Code Block",
+          onClick: () => setCodeBlockEditorSelection(codeBlockTarget),
+          preserveGroup: true,
+        } : mermaidTarget ? {
+          label: "Edit Mermaid Diagram",
+          onClick: () => setMermaidEditorSelection(mermaidTarget),
+        } : undefined}
         onInfographicEdit={() => {
           if (
             layoutToolbarTarget &&
@@ -3342,6 +3451,36 @@ function TemplateV2KonvaSlideComponent({
           onClose={closeChartEditor}
         />
       ) : null}
+      {isEditMode && codeBlockEditorSelection && codeBlockEditorElement && codeBlockDraft && (
+        <ImagepitCodeBlockEditor
+          key={keyForSelection(codeBlockEditorSelection)}
+          initial={codeBlockDraft}
+          frame={elementSize(codeBlockEditorElement)}
+          element={codeBlockEditorElement}
+          onSave={(next) => updateElement(codeBlockEditorSelection, (current) => ({
+            ...current,
+            ...next,
+          }))}
+          onClose={() => setCodeBlockEditorSelection(null)}
+        />
+      )}
+      {isEditMode && mermaidEditorSelection && mermaidDraft !== null && (
+        <ImagepitMermaidEditor
+          key={keyForSelection(mermaidEditorSelection)}
+          initial={mermaidDraft}
+          initialCss={readString(mermaidEditorElement?.imagepit_mermaid_css) ?? ""}
+          onSave={(source, css, data) => {
+            updateElement(mermaidEditorSelection, (element) => ({
+              ...element,
+              data,
+              imagepit_mermaid_source: source,
+              imagepit_mermaid_css: css,
+            }));
+            setMermaidEditorSelection(null);
+          }}
+          onClose={() => setMermaidEditorSelection(null)}
+        />
+      )}
       {isEditMode &&
         infographicEditorSelection &&
         infographicEditorElement &&

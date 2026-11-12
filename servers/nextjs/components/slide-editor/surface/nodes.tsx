@@ -48,6 +48,8 @@ import {
   shouldRenderTextElementAsHtml,
 } from "@/components/slide-editor/text/html-text-attrs";
 import type { TableCellSelection } from "@/components/slide-editor/state/state";
+import { codeBlockContentScale, readImagepitCodeBlock } from "@/lib/imagepit-code-block";
+import { readOptionalSize } from "@/components/slide-editor/model/core";
 import { loadKonvaImage } from "@/components/slide-editor/surface/exportAssets";
 import { constrainComponentTransformBounds } from "@/components/slide-editor/surface/componentFrameBounds";
 import {
@@ -521,10 +523,19 @@ function componentFromSideTransformPreview({
   sourceBox,
   target,
 }: ComponentSideTransformPreview) {
+  const elements = readArray(source.elements);
+  const element = elements.length === 1 ? asRecord(elements[0]) : null;
+  const minimum = element && readImagepitCodeBlock(element)
+    ? readOptionalSize(element.imagepit_code_min_size)
+    : null;
+  const scale = codeBlockContentScale(sourceBox, readOptionalSize(element?.imagepit_code_raster_size));
   return resizeComponentFromSideTransform(
     source,
     sourceBox,
-    { width: target.box.width, height: target.box.height },
+    {
+      width: Math.max(target.box.width, (minimum?.width ?? 0) * scale),
+      height: Math.max(target.box.height, (minimum?.height ?? 0) * scale),
+    },
     target.anchor,
     STAGE_BOX,
     target.rotation,
@@ -823,6 +834,7 @@ export function RawComponentNode({
   onComponentChange: (
     componentIndex: number,
     updater: (component: RawComponent) => RawComponent,
+    sideAnchor: ComponentSideResizeAnchor | null,
   ) => void;
   onComponentDragStart: (componentIndex: number, node: Konva.Node) => void;
   onComponentDragMove: (componentIndex: number, node: Konva.Node) => void;
@@ -861,7 +873,11 @@ export function RawComponentNode({
     (pending: ComponentSideTransformPreview) => {
       const next = componentFromSideTransformPreview(pending);
       transformPreviewRef.current = next;
-      setTransformPreview(next);
+      const elements = readArray(next.elements);
+      const codeBlock = elements.length === 1 ? asRecord(elements[0]) : null;
+      setTransformPreview(codeBlock && readImagepitCodeBlock(codeBlock)
+        ? { ...next, elements: [{ ...codeBlock, imagepit_code_resize_preview: pending.sourceBox }] }
+        : next);
     },
     [],
   );
@@ -929,7 +945,7 @@ export function RawComponentNode({
             y: position.y + delta.y,
           },
         };
-      });
+      }, null);
       return true;
     },
     [component.rotation, componentIndex, elements, onComponentChange],
@@ -1086,7 +1102,11 @@ export function RawComponentNode({
       node.setAttr(TRANSFORM_ANCHOR_ATTR, null);
       flushSync(() => {
         setTransformPreview(null);
-        onComponentChange(componentIndex, () => next);
+        onComponentChange(
+          componentIndex,
+          () => next,
+          isComponentSideResizeAnchor(sideAnchor) ? sideAnchor : null,
+        );
       });
     },
     [component, componentIndex, isEditMode, onComponentChange],
@@ -2720,7 +2740,11 @@ function RawImageElement({
     }
     | undefined;
 
-  if (fit === "cover") {
+  const previewFrame = readOptionalSize(element.imagepit_code_resize_preview);
+  if (previewFrame) {
+    drawW = Math.min(previewFrame.width, previewFrame.height * naturalRatio);
+    drawH = drawW / naturalRatio;
+  } else if (fit === "cover") {
     if (cropScale < 1) {
       if (naturalRatio > boxRatio) {
         drawW = height * naturalRatio * cropScale;

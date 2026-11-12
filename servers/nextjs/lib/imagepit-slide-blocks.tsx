@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { TemplateV2InsertComponent } from "@/components/slide-editor/events/events";
 import { svgToDataUri } from "@/components/slide-editor/surface/exportAssets";
 import type { Font, SlideElement, Stroke, TableCell } from "@/components/slide-editor/types";
+import { renderImagepitMermaid } from "./imagepit-mermaid";
 import { imagepitBlockSamples, mermaidSource } from "./imagepit-block-samples";
+import { ImagepitCodeBlockView } from "@/components/slide-editor/code-blocks/ImagepitCodeBlockView";
+import { captureImagepitCodeBlock, IMAGEPIT_BLOCK_FRAME, type ImagepitCodeBlockSource } from "./imagepit-code-block";
+
+const starterCode: ImagepitCodeBlockSource = {
+  style: "slide",
+  filename: "greet.ts",
+  language: "typescript",
+  code: 'function greet(name: string) {\n//highlightstart\n  return "Hello, " + name; // <--[Build the greeting]\n//highlightend\n}',
+};
 
 export type ImagepitSlideBlock = {
   key: string;
@@ -81,6 +91,7 @@ function readElements(root: HTMLElement, win: Window & typeof globalThis): Slide
         elements.push({
           type: "image", position, size, data,
           name: node.alt || undefined,
+          ...(node.dataset.mermaidSource ? { imagepit_mermaid_source: node.dataset.mermaidSource } : {}),
           fit: style.objectFit === "cover" ? "cover" : "contain",
         });
       }
@@ -178,30 +189,45 @@ function readElements(root: HTMLElement, win: Window & typeof globalThis): Slide
   return elements;
 }
 
+function ignoreCodePreviewError() {}
+
 export function ImagepitBlockSource({
   onReady,
 }: {
   onReady: (blocks: ImagepitSlideBlock[]) => void;
 }) {
   const [doc, setDocument] = useState<Document | null>(null);
+  const [codeBlock, setCodeBlock] = useState<ImagepitSlideBlock | null>(null);
+  const captureStarter = useCallback((node: HTMLElement) => {
+    void captureImagepitCodeBlock(node, starterCode).then((element) => {
+      if (!node.isConnected || !element.size) return;
+      setCodeBlock({
+        key: "code-block",
+        title: "Code Block",
+        component: {
+          id: "imagepit-code-block",
+          description: "IMAGEPIT Code Block",
+          position: { x: 40, y: 40 },
+          size: element.size,
+          elements: [{ ...element, position: { x: 0, y: 0 } }],
+        },
+      });
+    }).catch(() => {
+      if (node.isConnected) setCodeBlock(null);
+    });
+  }, []);
   const [diagram, setDiagram] = useState<string | null>(null);
-  const diagramId = `imagepit-mermaid-${useId().replace(/[^a-z0-9-]/gi, "")}`;
   const samples = useMemo(() => imagepitBlockSamples(diagram), [diagram]);
 
   useEffect(() => {
     let active = true;
-    void import("mermaid")
-      .then(async ({ default: mermaid }) => {
-        if (!active) return;
-        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", flowchart: { htmlLabels: false } });
-        const { svg } = await mermaid.render(diagramId, mermaidSource);
-        if (active) setDiagram(svgToDataUri(svg));
-      })
-      .catch(() => {
-        // The source remains editable if the diagram renderer is unavailable.
-      });
+    void renderImagepitMermaid(mermaidSource).then((data) => {
+      if (active) setDiagram(data);
+    }).catch(() => {
+      // Other blocks remain available if the diagram preview fails.
+    });
     return () => { active = false; };
-  }, [diagramId]);
+  }, []);
   useLayoutEffect(() => {
     if (!doc) return;
     const win = doc.defaultView;
@@ -209,7 +235,8 @@ export function ImagepitBlockSource({
     let active = true;
     void doc.fonts.ready.then(() => {
       if (!active) return;
-      onReady(samples.flatMap(({ key, title }) => {
+      const blocks = samples.flatMap(({ key, title }) => {
+        if (key === "mermaid-diagram" && !diagram) return [];
         const root = doc.getElementById(key);
         if (!root) return [];
         const elements = readElements(root, win);
@@ -224,10 +251,11 @@ export function ImagepitBlockSource({
             elements,
           },
         }] : [];
-      }));
+      });
+      onReady(codeBlock ? [codeBlock, ...blocks] : blocks);
     });
     return () => { active = false; };
-  }, [doc, onReady, samples]);
+  }, [codeBlock, diagram, doc, onReady, samples]);
 
   return (
     <>
@@ -237,11 +265,14 @@ export function ImagepitBlockSource({
         sandbox="allow-same-origin"
         tabIndex={-1}
         style={{ position: "fixed", left: -10000, width: 640, height: 720, visibility: "hidden", border: 0 }}
-        srcDoc={'<!doctype html><html lang="ja"><head><link rel="stylesheet" href="/api/imagepit-block-styles"></head><body></body></html>'}
+        srcDoc={IMAGEPIT_BLOCK_FRAME}
         onLoad={(event) => setDocument(event.currentTarget.contentDocument)}
       />
       {doc?.body && createPortal(
-        samples.map(({ key, view }) => <section key={key} id={key} style={{ width: 560 }}>{view}</section>),
+        <>
+          <ImagepitCodeBlockView source={starterCode} onReady={captureStarter} onError={ignoreCodePreviewError} />
+          {samples.map(({ key, view }) => <section key={key} id={key} style={{ width: 560 }}>{view}</section>)}
+        </>,
         doc.body,
       )}
     </>

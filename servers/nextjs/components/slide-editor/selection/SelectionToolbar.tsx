@@ -46,6 +46,7 @@ type TemplateV2SelectionToolbarProps = {
   onChartChange: (element: ChartSlideElement) => void;
   onChartEdit: () => void;
   onInfographicEdit: () => void;
+  sourceEdit?: { label: string; onClick: () => void; preserveGroup?: boolean };
   onEditorChange: (element: SlideElement) => void;
   onImageCropModeChange: (active: boolean) => void;
   onIconEdit: () => void;
@@ -79,6 +80,7 @@ export function TemplateV2SelectionToolbar({
   onChartChange,
   onChartEdit,
   onInfographicEdit,
+  sourceEdit,
   onEditorChange,
   onImageCropModeChange,
   onIconEdit,
@@ -105,7 +107,7 @@ export function TemplateV2SelectionToolbar({
   const componentActions =
     selection?.kind === "component"
       ? {
-          canUngroup: canUngroupComponent,
+          canUngroup: canUngroupComponent && !sourceEdit,
           componentCount,
           componentIndex: selection.componentIndex,
           onDelete: onDeleteSelection,
@@ -115,7 +117,7 @@ export function TemplateV2SelectionToolbar({
       }
       : targetComponentActions;
 
-  if (editorTarget && componentActions) {
+  if (editorTarget && componentActions && !sourceEdit) {
     return (
       <ElementToolbar
         element={editorTarget.element}
@@ -150,6 +152,7 @@ export function TemplateV2SelectionToolbar({
       onChartChange={chartTarget ? onChartChange : undefined}
       onChartEdit={chartTarget ? onChartEdit : undefined}
       onInfographicEdit={layoutTarget ? onInfographicEdit : undefined}
+      sourceEdit={sourceEdit}
       onChange={layoutTarget ? onLayoutChange : undefined}
       onTableChange={tableTarget ? onTableChange : undefined}
       selectedTableCell={selectedTableCell}
