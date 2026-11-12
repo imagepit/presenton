@@ -6,7 +6,9 @@ WORKDIR /app/servers/nextjs
 ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY servers/nextjs/package.json servers/nextjs/package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    npm ci
 
 COPY servers/nextjs ./
 RUN npm run build && rm -rf .next-build/cache

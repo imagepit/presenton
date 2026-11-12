@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Plus } from "lucide-react";
+import { LayoutTemplate, Plus } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
 import { v4 as uuidv4 } from "uuid";
 import { RootState } from "@/store/store";
@@ -206,7 +206,6 @@ const SidePanel = ({
 
   const shouldShowNewSlideModal =
     showNewSlideSelection &&
-    !isTemplateFree &&
     lastSlideTemplateId &&
     typeof document !== "undefined";
 
@@ -317,6 +316,16 @@ const SidePanel = ({
                   Add Slides
                 </span>
               </button>
+              {isTemplateFree && (
+                <button
+                  type="button"
+                  onClick={() => setShowNewSlideSelection(true)}
+                  className="flex w-[70px] flex-col items-center justify-center gap-2 rounded px-3 text-black hover:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5141E5]"
+                >
+                  <LayoutTemplate className="h-3.5 w-3.5" />
+                  <span className="text-[11px]">Layouts</span>
+                </button>
+              )}
             </div>
           )}
         </div>
