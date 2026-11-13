@@ -56,7 +56,7 @@ export async function bundledExportPackageAvailable(): Promise<boolean> {
   }
 }
 
-export type BundledPresentationExportFormat = "pdf" | "pptx";
+export type BundledPresentationExportFormat = "pdf" | "pptx" | "png";
 
 export type BundledPresentationExportResult = { path: string };
 

@@ -150,3 +150,17 @@ test("allocates unsized flex children like the Konva renderer", () => {
     /width:136\.34px;height:133\.62px;[^>]*display:flex;flex-direction:column/,
   );
 });
+
+test("captures SVG images for PPTX so browser-resolved styles survive", () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>本番レビュー</text></svg>';
+  const html = renderer.templateV2UiToHtmlFragment({
+    elements: [{
+      type: "image",
+      data: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+      position: { x: 10, y: 10 },
+      size: { width: 200, height: 100 },
+    }],
+  });
+  assert.match(html, /<img data-screenshot [^>]*src="data:image\/svg\+xml;charset=utf-8,/);
+  assert.ok(html.includes(encodeURIComponent(svg)));
+});

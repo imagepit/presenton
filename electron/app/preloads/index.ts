@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('env', {
 
 
 contextBridge.exposeInMainWorld('electron', {
-  exportPresentation: (id: string, title: string, format: "pptx" | "pdf") =>
+  exportPresentation: (id: string, title: string, format: "pptx" | "pdf" | "png") =>
     ipcRenderer.invoke("export-presentation", id, title, format),
   readFile: (filePath: string) => ipcRenderer.invoke("read-file", filePath),
 });

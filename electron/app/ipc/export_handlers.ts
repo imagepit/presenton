@@ -55,7 +55,7 @@ export async function stopActiveExportProcesses(): Promise<void> {
 }
 
 export function setupExportHandlers() {
-  ipcMain.handle("export-presentation", async (_, id: string, title: string, exportAs: "pptx" | "pdf") => {
+  ipcMain.handle("export-presentation", async (_, id: string, title: string, exportAs: "pptx" | "pdf" | "png") => {
     let exportTempDir: string | undefined;
     try {
       await removeBrokenExportChromiumCaches();

@@ -17,7 +17,7 @@ interface ElectronAPI {
   exportPresentation: (
     id: string,
     title: string,
-    format: "pptx" | "pdf"
+    format: "pptx" | "pdf" | "png"
   ) => Promise<any>;
   readFile: (filePath: string) => Promise<{ content: string }>;
 }

@@ -363,24 +363,26 @@ function renderImage(item: JsonRecord, mode: RenderMode): string {
       color
     )};background:currentColor;-webkit-mask:${maskUrl} center/${maskSize} no-repeat;mask:${maskUrl} center/${maskSize} no-repeat;${clipPath}"></div>`;
   }
+  // Capture the browser's resolved SVG colors and fonts for PPTX viewers.
+  const screenshot = /^data:image\/svg\+xml[;,]/i.test(source) ? " data-screenshot" : "";
   const fit = imageFit(item.fit);
   const focusStyle = imageFocusStyle(item);
   const cropTransformStyle = imageCropTransformStyle(item);
   if (cropTransformStyle) {
     return `<div style="${frameStyle(item, mode)}${boxStyle(
       item
-    )}${clipPath}overflow:hidden;"><img alt="" src="${escapeAttribute(
+    )}${clipPath}overflow:hidden;"><img${screenshot} alt="" src="${escapeAttribute(
       source
     )}" style="display:block;max-width:none;max-height:none;height:100%;width:100%;object-fit:${fit};${focusStyle}${cropTransformStyle}"></div>`;
   }
   if (clipPath) {
     return `<div style="${frameStyle(item, mode)}${boxStyle(
       item
-    )}${clipPath}overflow:hidden;"><img alt="" src="${escapeAttribute(
+    )}${clipPath}overflow:hidden;"><img${screenshot} alt="" src="${escapeAttribute(
       source
     )}" style="display:block;max-width:none;max-height:none;height:100%;width:100%;object-fit:${fit};${focusStyle}"></div>`;
   }
-  return `<img alt="" src="${escapeAttribute(source)}" style="${frameStyle(
+  return `<img${screenshot} alt="" src="${escapeAttribute(source)}" style="${frameStyle(
     item,
     mode
   )}${boxStyle(

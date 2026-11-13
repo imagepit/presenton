@@ -1002,6 +1002,12 @@ Prepend your server’s root URL to <code>path</code> and
 
 Track the public roadmap on GitHub Projects: [https://github.com/orgs/presenton/projects/2](https://github.com/orgs/presenton/projects/2)
 
+## スライドをPNGで書き出す
+
+編集画面の **Export → PNG (ZIP)** を選ぶと、保存済みデッキの各スライドを
+`slide_001.png`、`slide_002.png` の順に収めたZIPをダウンロードできます。
+PDF・PPTXも同じメニューから選べます。
+
 ## IMAGEPITの編集版と競合処理
 
 デッキ取得APIが返す `edit_revision` は編集内容の版です。保存形式を示す `version` と独立して管理します。既存デッキは起動時のAlembic移行で0から開始します。
