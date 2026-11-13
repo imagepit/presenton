@@ -20,7 +20,11 @@ const page = () => {
         );
     }
     return (
-        <PdfMakerPage presentation_id={queryId} exportCookie={exportCookie} />
+        <PdfMakerPage
+            presentation_id={queryId}
+            exportCookie={exportCookie}
+            captureMermaidCaptions={params.get("format") === "pptx"}
+        />
     );
 };
 export default page;

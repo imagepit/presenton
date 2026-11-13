@@ -102,6 +102,7 @@ interface Point {
 }
 
 interface TemplateV2HtmlOptions {
+  captureMermaidCaptions?: boolean;
   fonts?: unknown;
   width?: number;
   height?: number;
@@ -195,6 +196,20 @@ function templateV2RenderPayload(
   const items = [...rootElements, ...components].map((item) =>
     readRecord(normalizeTemplateV2AssetUrls(item))
   );
+  if (options.captureMermaidCaptions) {
+    for (const item of items) {
+      if (!isComponent(item)) continue;
+      const elements = item.elements.map(readRecord);
+      // Older decks identify the Mermaid block by its insertion ID.
+      const isMermaid = readString(item.id)?.startsWith("imagepit-mermaid-diagram") ||
+        elements.some((element) => typeof element.imagepit_mermaid_source === "string");
+      if (isMermaid) {
+        item.elements = elements.map((element) =>
+          element.type === "text" ? { ...element, captureMermaidCaption: true } : element
+        );
+      }
+    }
+  }
 
   if (items.length === 0) {
     return null;
@@ -403,7 +418,8 @@ function renderText(item: JsonRecord, mode: RenderMode): string {
     })
     .join("");
 
-  return `<div style="${frameStyle(item, mode)}${transformStyle(item)}${fontStyle(font, {
+  const screenshot = item.captureMermaidCaption === true ? " data-screenshot" : "";
+  return `<div${screenshot} style="${frameStyle(item, mode)}${transformStyle(item)}${fontStyle(font, {
     includeLineHeight: false,
     includeTextDecoration: false,
   })}${textShadowStyle(item)}display:flex;align-items:${verticalAlign(
@@ -3878,9 +3894,9 @@ function joinedRunText(runs: JsonRecord[]): string {
 
 function renderTextRunHtml(run: JsonRecord, font: JsonRecord): string {
   if (readString(run.type) !== "latex") {
-    // Impress drops text after an ideographic space in an exported PPTX run.
-    const text = readStringValue(run.text).replaceAll("\u3000", "\u2003");
-    return `<span style="${fontStyle(font)}">${escapeHtml(text)}</span>`;
+    return `<span style="${fontStyle(font)}">${escapeHtml(
+      readStringValue(run.text),
+    )}</span>`;
   }
 
   const latex = normalizeMathLatex(run.latex);
