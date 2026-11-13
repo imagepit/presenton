@@ -3878,9 +3878,9 @@ function joinedRunText(runs: JsonRecord[]): string {
 
 function renderTextRunHtml(run: JsonRecord, font: JsonRecord): string {
   if (readString(run.type) !== "latex") {
-    return `<span style="${fontStyle(font)}">${escapeHtml(
-      readStringValue(run.text),
-    )}</span>`;
+    // Impress drops text after an ideographic space in an exported PPTX run.
+    const text = readStringValue(run.text).replaceAll("\u3000", "\u2003");
+    return `<span style="${fontStyle(font)}">${escapeHtml(text)}</span>`;
   }
 
   const latex = normalizeMathLatex(run.latex);
