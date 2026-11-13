@@ -102,6 +102,7 @@ const PDF_PRINT_STYLE = `
 type PresentationPageProps = {
   presentation_id: string;
   exportCookie?: string;
+  captureMermaidCaptions?: boolean;
 };
 
 const SmartHtmlPdfSlide = ({
@@ -140,7 +141,7 @@ const SmartHtmlPdfSlide = ({
   );
 };
 
-const PresentationPage = ({ presentation_id, exportCookie }: PresentationPageProps) => {
+const PresentationPage = ({ presentation_id, exportCookie, captureMermaidCaptions }: PresentationPageProps) => {
   const pathname = usePathname();
   const [contentLoading, setContentLoading] = useState(true);
   const exportCookieFromHash =
@@ -293,6 +294,7 @@ const PresentationPage = ({ presentation_id, exportCookie }: PresentationPagePro
                         <TemplateV2HtmlSlidePreview
                           slide={slide}
                           fonts={presentationData?.fonts}
+                          captureMermaidCaptions={captureMermaidCaptions}
                           fixedSize
                         />
                       ) : typeof slide?.html_content === "string" &&

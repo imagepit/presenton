@@ -219,6 +219,7 @@ export function TemplateV2HtmlSlidePreview({
   slide,
   fonts,
   fixedSize = false,
+  captureMermaidCaptions = false,
   fillContainer = false,
   fitBounds,
   fitPadding,
@@ -229,6 +230,7 @@ export function TemplateV2HtmlSlidePreview({
   slide: unknown;
   fonts?: unknown;
   fixedSize?: boolean;
+  captureMermaidCaptions?: boolean;
   fillContainer?: boolean;
   fitBounds?: { left: number; top: number; right: number; bottom: number };
   fitPadding?: { x: number; y: number };
@@ -246,8 +248,9 @@ export function TemplateV2HtmlSlidePreview({
     if (!slide || typeof slide !== "object") return null;
     return templateV2UiToHtmlFragment((slide as Record<string, unknown>).ui, {
       fonts,
+      captureMermaidCaptions,
     });
-  }, [fonts, slide]);
+  }, [captureMermaidCaptions, fonts, slide]);
   const htmlMarkup = useMemo(
     () => ({ __html: html ?? "" }),
     [html]

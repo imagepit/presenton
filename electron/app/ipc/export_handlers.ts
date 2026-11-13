@@ -75,7 +75,7 @@ export function setupExportHandlers() {
         exportAs,
         memory: memorySnapshotMb(),
       });
-      const params = new URLSearchParams({ id });
+      const params = new URLSearchParams({ id, format: exportAs });
       if (process.env.NEXT_PUBLIC_FAST_API) {
         params.set("fastapiUrl", process.env.NEXT_PUBLIC_FAST_API);
       }

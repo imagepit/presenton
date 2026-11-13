@@ -164,3 +164,23 @@ test("captures SVG images for PPTX so browser-resolved styles survive", () => {
   assert.match(html, /<img data-screenshot [^>]*src="data:image\/svg\+xml;charset=utf-8,/);
   assert.ok(html.includes(encodeURIComponent(svg)));
 });
+
+test("captures Mermaid captions only when preparing PPTX output", () => {
+  const text = (value) => ({
+    type: "text",
+    position: { x: 0, y: 20 },
+    size: { width: 200, height: 20 },
+    runs: [{ text: value }],
+  });
+  const ui = {
+    components: [{ id: "imagepit-mermaid-diagram_1", elements: [text("図2　公開までの流れ")] }],
+    elements: [text("編集できる本文")],
+  };
+
+  const pptx = renderer.templateV2UiToHtmlFragment(ui, { captureMermaidCaptions: true });
+  assert.match(pptx, /<div data-screenshot [^>]*><span[^>]*><span[^>]*>図2　公開までの流れ/);
+  assert.equal((pptx.match(/data-screenshot/g) ?? []).length, 1);
+  const pdf = renderer.templateV2UiToHtmlFragment(ui);
+  assert.match(pdf, /図2　公開までの流れ/);
+  assert.doesNotMatch(pdf, /data-screenshot/);
+});
