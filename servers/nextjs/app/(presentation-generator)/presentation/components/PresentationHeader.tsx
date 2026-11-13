@@ -1,4 +1,6 @@
 "use client";
+
+import type { BundledPresentationExportFormat } from "@/lib/run-bundled-presentation-export";
 import { Button } from "@/components/ui/button";
 import {
   Play,
@@ -61,7 +63,7 @@ const MAX_EXPORT_TITLE_LENGTH = 40;
 
 const buildSafeExportFileName = (
   rawTitle: string | null | undefined,
-  extension: "pdf" | "pptx"
+  extension: "pdf" | "pptx" | "zip"
 ) => {
   const normalizedTitle = (rawTitle || "presentation").trim();
   const titleWithoutExtension = normalizedTitle.replace(/\.(pdf|pptx)$/i, "");
@@ -207,7 +209,7 @@ const PresentationHeader = ({
   };
 
   const exportViaIpc = async (
-    format: "pptx" | "pdf",
+    format: BundledPresentationExportFormat,
     title: string
   ): Promise<void> => {
     if (!window.electron?.exportPresentation) {
@@ -223,7 +225,7 @@ const PresentationHeader = ({
     }
   };
 
-  const handleExportPptx = async () => {
+  const handleExport = async (format: BundledPresentationExportFormat) => {
     if (isStreaming) return;
 
     const exportId = uuidv4();
@@ -231,65 +233,56 @@ const PresentationHeader = ({
     const exportRuntime = window.electron?.exportPresentation
       ? "electron"
       : "browser_api";
-    let exportToastId: string | number | undefined;
+    const extension = format === "png" ? "zip" : format;
+    const formatLabel = format.toUpperCase();
+    const exportToastId = notify.loading(
+      `Exporting ${formatLabel}`,
+      "Your presentation is being exported. This may take a moment."
+    );
+
     try {
-      exportToastId = notify.loading(
-        "Exporting PPTX",
-        "Your presentation is being exported. This may take a moment."
-      );
       setIsExporting(true);
       await trackExportLifecycle(
         MixpanelEvent.Presentation_Export_Started,
-        "pptx",
+        format,
         exportRuntime,
         exportId,
         exportStartedAt
       );
-      const safePptxFileName = buildSafeExportFileName(
-        presentationData?.title,
-        "pptx"
-      );
-      const safePptxTitle = safePptxFileName.replace(/\.pptx$/i, "");
+      const fileName = buildSafeExportFileName(presentationData?.title, extension);
+      const title = fileName.slice(0, -(extension.length + 1));
       if (exportRuntime === "electron") {
-        await exportViaIpc("pptx", safePptxTitle);
+        await exportViaIpc(format, title);
       } else {
         const response = await fetch("/api/export-presentation", {
           method: "POST",
-          body: JSON.stringify({
-            format: "pptx",
-            id: presentation_id,
-            title: safePptxTitle,
-          }),
+          body: JSON.stringify({ format, id: presentation_id, title }),
         });
 
-        if (!response.ok) {
-          throw new Error("Failed to export PPTX");
-        }
-
-        const { path: pptxPath } = await response.json();
-        if (!pptxPath) {
+        if (!response.ok) throw new Error(`Failed to export ${formatLabel}`);
+        const { path } = await response.json();
+        if (typeof path !== "string" || !path) {
           throw new Error("No path returned from export");
         }
-
-        downloadLink(pptxPath, safePptxFileName);
+        downloadLink(path, fileName);
       }
       await trackExportLifecycle(
         MixpanelEvent.Presentation_Export_Completed,
-        "pptx",
+        format,
         exportRuntime,
         exportId,
         exportStartedAt
       );
       notify.success(
         "Export complete",
-        "Your PPTX file has been downloaded.",
+        format === "png" ? "Your PNG archive has been downloaded." : `Your ${formatLabel} file has been downloaded.`,
         { id: exportToastId }
       );
     } catch (error) {
       console.error("Export failed:", error);
       await trackExportLifecycle(
         MixpanelEvent.Presentation_Export_Failed,
-        "pptx",
+        format,
         exportRuntime,
         exportId,
         exportStartedAt,
@@ -298,88 +291,7 @@ const PresentationHeader = ({
       notify.error(
         "Export failed",
         "We are having trouble exporting your presentation. Please try again.",
-        exportToastId !== undefined ? { id: exportToastId } : undefined
-      );
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const handleExportPdf = async () => {
-    if (isStreaming) return;
-
-    const exportId = uuidv4();
-    const exportStartedAt = Date.now();
-    const exportRuntime = window.electron?.exportPresentation
-      ? "electron"
-      : "browser_api";
-    let exportToastId: string | number | undefined;
-    try {
-      exportToastId = notify.loading(
-        "Exporting PDF",
-        "Your presentation is being exported. This may take a moment."
-      );
-      setIsExporting(true);
-      await trackExportLifecycle(
-        MixpanelEvent.Presentation_Export_Started,
-        "pdf",
-        exportRuntime,
-        exportId,
-        exportStartedAt
-      );
-      const safePdfFileName = buildSafeExportFileName(
-        presentationData?.title,
-        "pdf"
-      );
-      const safePdfTitle = safePdfFileName.replace(/\.pdf$/i, "");
-      if (exportRuntime === "electron") {
-        await exportViaIpc("pdf", safePdfTitle);
-      } else {
-        const response = await fetch("/api/export-presentation", {
-          method: "POST",
-          body: JSON.stringify({
-            format: "pdf",
-            id: presentation_id,
-            title: safePdfTitle,
-          }),
-        });
-
-        if (response.ok) {
-          const { path: pdfPath } = await response.json();
-          if (!pdfPath) {
-            throw new Error("No path returned from export");
-          }
-          downloadLink(pdfPath, safePdfFileName);
-        } else {
-          throw new Error("Failed to export PDF");
-        }
-      }
-      await trackExportLifecycle(
-        MixpanelEvent.Presentation_Export_Completed,
-        "pdf",
-        exportRuntime,
-        exportId,
-        exportStartedAt
-      );
-      notify.success(
-        "Export complete",
-        "Your PDF file has been downloaded.",
         { id: exportToastId }
-      );
-    } catch (error) {
-      console.error(error);
-      await trackExportLifecycle(
-        MixpanelEvent.Presentation_Export_Failed,
-        "pdf",
-        exportRuntime,
-        exportId,
-        exportStartedAt,
-        error
-      );
-      notify.error(
-        "Export failed",
-        "We are having trouble exporting your presentation. Please try again.",
-        exportToastId !== undefined ? { id: exportToastId } : undefined
       );
     } finally {
       setIsExporting(false);
@@ -438,7 +350,7 @@ const PresentationHeader = ({
       | MixpanelEvent.Presentation_Export_Started
       | MixpanelEvent.Presentation_Export_Completed
       | MixpanelEvent.Presentation_Export_Failed,
-    format: "pptx" | "pdf",
+    format: BundledPresentationExportFormat,
     exportRuntime: "electron" | "browser_api",
     exportId: string,
     exportStartedAt: number,
@@ -473,30 +385,24 @@ const PresentationHeader = ({
       <p className="text-sm font-medium text-[#19001F]">Export as</p>
       <div className="my-[18px] h-[1px] bg-[#E8E8E8]" />
       <div className="space-y-3">
-        <Button
-          onClick={() => {
-            handleExportPdf();
-            setOpen(false);
-          }}
-          variant="ghost"
-          className={`  rounded-none px-0 w-full text-xs flex justify-start text-black hover:bg-transparent ${mobile ? "bg-white py-6 border-none rounded-lg" : ""
-            }`}
-        >
-          PDF
-          <ArrowUpRight className="w-3.5 h-3.5" />
-        </Button>
-        <Button
-          onClick={() => {
-            handleExportPptx();
-            setOpen(false);
-          }}
-          variant="ghost"
-          className={`w-full flex px-0 justify-start text-xs text-black hover:bg-transparent  ${mobile ? "bg-white py-6" : ""
-            }`}
-        >
-          PPTX
-          <ArrowUpRight className="w-3.5 h-3.5" />
-        </Button>
+        {([
+          ["pdf", "PDF"],
+          ["pptx", "PPTX"],
+          ["png", "PNG (ZIP)"],
+        ] as const).map(([format, label]) => (
+          <Button
+            key={format}
+            onClick={() => {
+              void handleExport(format);
+              setOpen(false);
+            }}
+            variant="ghost"
+            className={`w-full justify-start px-0 text-xs text-black hover:bg-transparent ${mobile ? "bg-white py-6" : "rounded-none"}`}
+          >
+            {label}
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </Button>
+        ))}
       </div>
     </div>
   );

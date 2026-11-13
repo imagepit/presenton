@@ -10,7 +10,7 @@ import {
 import { authStatusForRequest } from "@/lib/server-auth-role";
 
 function isValidFormat(value: unknown): value is BundledPresentationExportFormat {
-  return value === "pdf" || value === "pptx";
+  return value === "pdf" || value === "pptx" || value === "png";
 }
 
 async function readExportRequestBody(req: NextRequest): Promise<{
@@ -31,14 +31,14 @@ async function readExportRequestBody(req: NextRequest): Promise<{
   return parsed as { format?: unknown; id?: unknown; title?: unknown };
 }
 
-function buildExportDownloadUrl(outPath: string): string {
+async function buildExportDownloadUrl(outPath: string): Promise<string> {
   const appDataDirectory = process.env.APP_DATA_DIRECTORY?.trim();
   if (!appDataDirectory) {
     throw new Error("APP_DATA_DIRECTORY is required to download exported files.");
   }
 
-  const exportsDirectory = path.join(appDataDirectory, "exports");
-  const relativePath = path.relative(exportsDirectory, outPath);
+  const exportsDirectory = await fs.realpath(path.join(appDataDirectory, "exports"));
+  const relativePath = path.relative(exportsDirectory, await fs.realpath(outPath));
   if (
     !relativePath ||
     relativePath.startsWith("..") ||
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      path: buildExportDownloadUrl(outPath),
+      path: await buildExportDownloadUrl(outPath),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
