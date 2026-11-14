@@ -1,14 +1,21 @@
-import { readOptionalSize, readString } from "@/components/slide-editor/model/core";
+import { asRecord, readOptionalSize, readString } from "@/components/slide-editor/model/core";
 import { loadKonvaImage } from "@/components/slide-editor/surface/exportAssets";
 import type { ImageElement } from "@/components/slide-editor/types";
 
 export type ImagepitCodeBlockStyle = "web" | "slide";
+
+export type ImagepitCommandOutput = {
+  language: string;
+  code: string;
+  title?: string;
+};
 
 export type ImagepitCodeBlockSource = {
   style: ImagepitCodeBlockStyle;
   filename: string;
   language: string;
   code: string;
+  output?: ImagepitCommandOutput;
 };
 
 export const IMAGEPIT_BLOCK_FRAME = '<!doctype html><html lang="ja"><head><link rel="stylesheet" href="/api/imagepit-block-styles"></head><body style="margin:0"></body></html>';
@@ -34,16 +41,16 @@ export async function resolveCodeBlockRasterSize(element: Record<string, unknown
 }
 
 export function fitCodeBlockFrame(node: HTMLElement, requested?: FrameSize) {
-  const figure = node.querySelector("figure");
-  if (!figure) throw new Error("Could not measure the code block.");
+  const block = node.querySelector<HTMLElement>("figure, .ui-exec-pair");
+  if (!block) throw new Error("Could not measure the code block.");
 
   node.style.width = "max-content";
   node.style.removeProperty("padding-top");
-  figure.style.removeProperty("min-height");
+  block.style.removeProperty("min-height");
 
-  // Slide's filename badge is positioned outside the figure's normal flow.
+  // Slide's title badge is positioned outside the block's normal flow.
   const badge = node.classList.contains("imagepit-slide-code-block")
-    ? figure.querySelector<HTMLElement>(".ui-code-block__header")
+    ? block.querySelector<HTMLElement>(".ui-code-block__header, .ui-exec-pair__header")
     : null;
   const badgeTop = badge
     ? Math.max(0, Math.ceil(node.getBoundingClientRect().top - badge.getBoundingClientRect().top))
@@ -57,8 +64,8 @@ export function fitCodeBlockFrame(node: HTMLElement, requested?: FrameSize) {
   const width = Math.max(minimum.width, Math.min(MAX_WIDTH, Math.round(requested?.width ?? CODE_BLOCK_WIDTH)));
   const height = Math.max(minimum.height, Math.min(MAX_HEIGHT, Math.round(requested?.height ?? 0)));
   node.style.width = `${width}px`;
-  figure.style.boxSizing = "border-box";
-  figure.style.minHeight = `${height - badgeTop}px`;
+  block.style.boxSizing = "border-box";
+  block.style.minHeight = `${height - badgeTop}px`;
   return { width, height, minimum };
 }
 
@@ -69,7 +76,17 @@ export function readImagepitCodeBlock(element: Record<string, unknown> | null) {
   if (!("filename" in source) || typeof source.filename !== "string" ||
       !("language" in source) || typeof source.language !== "string" ||
       !("code" in source) || typeof source.code !== "string") return null;
+  const output = "output" in source ? asRecord(source.output) : null;
   return {
+    ...(output && typeof output.language === "string" && typeof output.code === "string"
+      ? {
+          output: {
+            language: output.language,
+            code: output.code,
+            title: readString(output.title) ?? undefined,
+          },
+        }
+      : {}),
     filename: source.filename,
     language: source.language,
     code: source.code,

@@ -3287,7 +3287,7 @@ function TemplateV2KonvaSlideComponent({
           }
         }}
         sourceEdit={codeBlockSelected && codeBlockTarget ? {
-          label: "Edit Code Block",
+          label: codeBlockSelected.output ? "Edit Command" : "Edit Code Block",
           onClick: () => setCodeBlockEditorSelection(codeBlockTarget),
           preserveGroup: true,
         } : mermaidTarget ? {
