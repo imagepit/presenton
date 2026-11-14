@@ -1,4 +1,5 @@
 import { resolveBackendAssetUrl } from "@/utils/api";
+import { fitTableColumnWidths, readTableColumnWidths } from "@/components/slide-editor/tables/table-columns";
 import { markdownToPlainChartText } from "@/components/slide-editor/charts/chart-data";
 import {
   displayText,
@@ -480,6 +481,10 @@ function renderTable(item: JsonRecord, mode: RenderMode): string {
 
   const rowCount = Math.max(1, rows.length);
   const colCount = Math.max(1, ...rows.map((row) => row.length));
+  const widths = readTableColumnWidths(item.column_widths, colCount);
+  const columnTracks = widths
+    ? fitTableColumnWidths(widths, 100).map((width) => `minmax(0,${width}fr)`).join(" ")
+    : `repeat(${colCount},minmax(0,1fr))`;
   const tableFont = tableBaseFont(item);
   const cells = rows
     .flatMap((row, rowIndex) =>
@@ -497,7 +502,7 @@ function renderTable(item: JsonRecord, mode: RenderMode): string {
   return `<div style="${frameStyle(
     item,
     mode
-  )}${transformStyle(item)}display:grid;grid-template-columns:repeat(${colCount},minmax(0,1fr));grid-template-rows:repeat(${rowCount},minmax(0,1fr));overflow:hidden">${cells}</div>`;
+  )}${transformStyle(item)}display:grid;grid-template-columns:${columnTracks};grid-template-rows:repeat(${rowCount},minmax(0,1fr));overflow:hidden">${cells}</div>`;
 }
 
 function renderContainer(item: JsonRecord, mode: RenderMode): string {

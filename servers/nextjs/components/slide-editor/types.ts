@@ -519,6 +519,7 @@ export type TableElement = ElementBase & {
   font?: Font | null;
   columns: TableCell[];
   rows: TableCell[][];
+  column_widths?: number[] | null;
   max_columns?: number | null;
   min_columns?: number | null;
   max_rows?: number | null;

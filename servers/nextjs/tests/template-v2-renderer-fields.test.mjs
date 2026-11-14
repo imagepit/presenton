@@ -150,7 +150,7 @@ test("preserves the supported PPTX JSON metadata when importing Template V2", ()
     bottom: { color: "#FF9999", opacity: 1, width: 0 },
   });
   assert.equal(slide.elements[1].columns[0].row_span, undefined);
-  assert.equal(slide.elements[1].column_widths, undefined);
+  assert.deepEqual(slide.elements[1].column_widths, [120]);
   assert.equal(slide.elements[2].name, "connector");
   assert.equal(slide.elements[2].flip_v, true);
   assert.deepEqual(slide.elements[2].stroke.start_marker, {

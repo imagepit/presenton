@@ -1,3 +1,4 @@
+import { resizeTableColumnWidths } from "@/components/slide-editor/tables/table-columns";
 import {
   asRecord,
   readArray,
@@ -135,6 +136,11 @@ export function resizeRawElementBounds(
               width: Math.max(1, explicitSize.width * safeScaleX),
               height: Math.max(1, explicitSize.height * safeScaleY),
             },
+          }
+        : {}),
+      ...(type === "table" && element.column_widths != null
+        ? {
+            column_widths: resizeTableColumnWidths(element.column_widths, safeScaleX),
           }
         : {}),
       ...(polygonPoints.length > 0

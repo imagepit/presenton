@@ -30,6 +30,13 @@ import {
   tableRowsAsStrings,
 } from "@/components/slide-editor/model/element-model";
 import type { TableCell } from "@/components/slide-editor/types";
+import {
+  fitTableColumnWidths,
+  minimumTableColumnPercent,
+  readTableColumnWidths,
+  setTableColumnPercent,
+  tableColumnFrames,
+} from "@/components/slide-editor/tables/table-columns";
 import { DeferredColorInput } from "@/components/slide-editor/toolbar/DeferredColorInput";
 import {
   FloatingToolbar,
@@ -90,6 +97,15 @@ export function TableToolbarControls({
           ? AlignJustify
           : AlignLeft;
   const canAddRow = rows.length < 8;
+  const tableWidth = Math.max(1, elementBox(element).w);
+  const savedWidths = readTableColumnWidths(element.column_widths, columnCount);
+  const columnWidths = tableColumnFrames(
+    savedWidths,
+    columnCount,
+    tableWidth,
+  ).map((column) => column.width);
+  const columnPercent =
+    Math.round((columnWidths[activeColumn] / tableWidth) * 1000) / 10;
   const canAddColumn = columnCount < 6;
   const canDeleteRow = rows.length > 2;
   const canDeleteColumn = columnCount > 1;
@@ -136,48 +152,64 @@ export function TableToolbarControls({
     commitRows(nextRows);
   };
 
+  const updateColumns = (change: (indices: (number | null)[]) => void) => {
+    const indices: (number | null)[] = Array.from(
+      { length: columnCount },
+      (_, columnIndex) => columnIndex,
+    );
+    change(indices);
+    const updateCells = (cells: TableCell[]) =>
+      indices.map((oldIndex) =>
+        (oldIndex === null ? undefined : cells[oldIndex]) ?? { runs: [] },
+      );
+    onChange(index, {
+      ...element,
+      columns: updateCells(element.columns),
+      rows: element.rows.map(updateCells),
+      column_widths: savedWidths
+        ? fitTableColumnWidths(
+            indices.map((oldIndex) =>
+              oldIndex === null ? tableWidth / columnCount : columnWidths[oldIndex],
+            ),
+            tableWidth,
+          )
+        : null,
+    });
+  };
+
   const addColumn = () => {
     if (!canAddColumn) return;
-    const insertIndex = Math.min(columnCount, activeColumn + 1);
-    commitRows(
-      rows.map((row) => {
-        const next = Array.from(
-          { length: columnCount },
-          (_, colIndex) => row[colIndex] ?? "",
-        );
-        next.splice(insertIndex, 0, "");
-        return next;
-      }),
-    );
+    updateColumns((indices) => {
+      indices.splice(activeColumn + 1, 0, null);
+    });
   };
 
   const deleteColumn = () => {
     if (!canDeleteColumn) return;
-    commitRows(
-      rows.map((row) =>
-        Array.from({ length: columnCount }, (_, colIndex) => row[colIndex] ?? "")
-          .filter((_, colIndex) => colIndex !== activeColumn),
-      ),
-    );
+    updateColumns((indices) => {
+      indices.splice(activeColumn, 1);
+    });
   };
 
   const moveColumn = (direction: "left" | "right") => {
     const targetColumn =
       direction === "left" ? activeColumn - 1 : activeColumn + 1;
     if (targetColumn < 0 || targetColumn >= columnCount) return;
-    commitRows(
-      rows.map((row) => {
-        const next = Array.from(
-          { length: columnCount },
-          (_, colIndex) => row[colIndex] ?? "",
-        );
-        [next[activeColumn], next[targetColumn]] = [
-          next[targetColumn],
-          next[activeColumn],
-        ];
-        return next;
-      }),
-    );
+    updateColumns((indices) => {
+      [indices[activeColumn], indices[targetColumn]] = [
+        indices[targetColumn],
+        indices[activeColumn],
+      ];
+    });
+  };
+
+  const updateColumnWidth = (percent: number) => {
+    if (!Number.isFinite(percent) || percent === columnPercent) return;
+    onChange(index, {
+      ...element,
+      column_widths: setTableColumnPercent(columnWidths, activeColumn, percent),
+    });
+    setTableMenuOpen(false);
   };
 
   const updateActiveCell = (
@@ -228,6 +260,9 @@ export function TableToolbarControls({
       ...(cell ?? { runs: [] }),
       alignment: nextAlignment,
     }));
+  };
+  const resetColumnWidths = () => {
+    onChange(index, { ...element, column_widths: null });
   };
   const runTableMenuAction = (action: () => void) => {
     action();
@@ -307,6 +342,13 @@ export function TableToolbarControls({
         canMoveColumnLeft={canMoveColumnLeft}
         canMoveColumnRight={canMoveColumnRight}
         menuOpen={tableMenuOpen}
+        columnCount={columnCount}
+        columnPercent={columnPercent}
+        columnIndex={activeColumn}
+        onChangeColumnWidth={updateColumnWidth}
+        onResetColumnWidths={
+          savedWidths ? () => runTableMenuAction(resetColumnWidths) : undefined
+        }
         onAddColumn={() => runTableMenuAction(addColumn)}
         onAddRow={() => runTableMenuAction(addRow)}
         onDeleteColumn={() => runTableMenuAction(deleteColumn)}
@@ -368,6 +410,11 @@ function TableToolbarMenu({
   canMoveColumnLeft,
   canMoveColumnRight,
   menuOpen,
+  columnCount,
+  columnPercent,
+  columnIndex,
+  onChangeColumnWidth,
+  onResetColumnWidths,
   onAddColumn,
   onAddRow,
   onDeleteColumn,
@@ -382,6 +429,11 @@ function TableToolbarMenu({
   canMoveColumnLeft: boolean;
   canMoveColumnRight: boolean;
   menuOpen: boolean;
+  columnCount: number;
+  columnPercent: number;
+  columnIndex: number;
+  onChangeColumnWidth: (percent: number) => void;
+  onResetColumnWidths?: () => void;
   onAddColumn: () => void;
   onAddRow: () => void;
   onDeleteColumn: () => void;
@@ -390,6 +442,7 @@ function TableToolbarMenu({
   onMoveColumnRight: () => void;
 }) {
   if (!menuOpen) return null;
+  const minimum = minimumTableColumnPercent(columnCount);
 
   return (
     <FloatingToolbarPanel style={menuStyle}>
@@ -417,6 +470,50 @@ function TableToolbarMenu({
         label="Add Column"
         onClick={onAddColumn}
       />
+      {columnCount > 1 ? (
+        <>
+          <div style={menuDividerStyle} />
+          <form
+            key={columnIndex}
+            style={{ ...menuItemStyle, gap: 8 }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const width = new FormData(event.currentTarget).get("width");
+              onChangeColumnWidth(Number(width));
+            }}
+          >
+            <label style={{ display: "flex", flex: 1, alignItems: "center", gap: 8 }}>
+              Column width
+              <input
+                name="width"
+                type="number"
+                required
+                min={minimum}
+                max={100 - minimum}
+                step="any"
+                defaultValue={columnPercent}
+                style={{
+                  width: 55,
+                  padding: "3px 4px",
+                  border: "1px solid #D0D5DD",
+                  borderRadius: 4,
+                }}
+              />
+              %
+            </label>
+            <button
+              type="submit"
+              aria-label="Apply column width"
+              style={{ ...iconButtonStyle, width: "auto", padding: "0 4px" }}
+            >
+              Apply
+            </button>
+          </form>
+          {onResetColumnWidths ? (
+            <MenuItem label="Equal column widths" onClick={onResetColumnWidths} />
+          ) : null}
+        </>
+      ) : null}
       <div style={menuDividerStyle} />
       <MenuItem
         disabled={!canMoveColumnRight}

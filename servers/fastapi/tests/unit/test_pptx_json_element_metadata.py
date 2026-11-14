@@ -1,7 +1,7 @@
 from templates.v2.models.elements import Chart, Table, Vector
 
 
-def test_table_keeps_borders_and_drops_other_conversion_extensions():
+def test_table_keeps_column_widths_and_borders():
     table = Table.model_validate(
         {
             "type": "table",
@@ -35,7 +35,7 @@ def test_table_keeps_borders_and_drops_other_conversion_extensions():
     dumped = table.model_dump(exclude_none=True)
     assert dumped["flip_h"] is True
     assert dumped["columns"][0]["borders"]["bottom"]["width"] == 0
-    assert "column_widths" not in dumped
+    assert dumped["column_widths"] == [240]
     assert "row_heights" not in dumped
     for field in (
         "vertical_alignment",

@@ -57,6 +57,7 @@ import {
   type LatestFrameBatch,
 } from "@/components/slide-editor/surface/latestFrameBatch";
 import { TemplateV2ChartJsElement as RawChartElement } from "@/components/slide-editor/charts/TemplateV2ChartJsElement";
+import { resizeTableColumnWidths } from "@/components/slide-editor/tables/table-columns";
 import { TemplateV2TableElement as RawTableElement } from "@/components/slide-editor/tables/TemplateV2TableElement";
 import { blackOrWhiteTextColor } from "@/components/slide-editor/tables/table-colors";
 import { LatexRunNode } from "@/components/slide-editor/math/LatexRunNode";
@@ -1672,6 +1673,14 @@ function RawElementNode({
                 ...scaled,
                 position: nextPosition,
                 size: nextSize,
+                ...(type === "table" && current.column_widths != null
+                  ? {
+                      column_widths: resizeTableColumnWidths(
+                        current.column_widths,
+                        sourceBox.width > 0 ? nextSize.width / sourceBox.width : 1,
+                      ),
+                    }
+                  : {}),
               };
         return {
           ...geometry,
