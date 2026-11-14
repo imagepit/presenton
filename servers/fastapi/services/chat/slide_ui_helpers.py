@@ -1978,6 +1978,9 @@ def _update_table_element(element: dict[str, Any], table: dict[str, Any]) -> Non
         _dicts(row) for row in element.get("rows", []) if isinstance(row, list)
     ]
 
+    if len(existing_rows) != len(rows):
+        element.pop("row_heights", None)
+
     element["columns"] = [
         _replacement_table_cell(
             value=value,

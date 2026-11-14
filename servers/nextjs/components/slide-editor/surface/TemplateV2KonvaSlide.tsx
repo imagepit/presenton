@@ -86,6 +86,13 @@ import {
 } from "@/components/slide-editor/infographics/infographic-editing";
 import type { TemplateV2InfographicToolbarElement } from "@/components/slide-editor/layout/InfographicToolbarControls";
 import { resizedInfographicFrame } from "@/components/slide-editor/infographics/infographic-sizing";
+import type { TableCellAddress } from "@/components/slide-editor/state/state";
+import { TextToolbar } from "@/components/slide-editor/text/TextToolbar";
+import {
+  formatTableCells,
+  hasTableCellRange,
+  selectedTableCellFont,
+} from "@/components/slide-editor/tables/table-cell-style";
 import { TableInlineEditor } from "@/components/slide-editor/tables/TableInlineEditor";
 import { TemplateV2InlineEditor } from "@/components/slide-editor/text/TemplateV2InlineEditor";
 import { StaticHtmlTextLayer } from "@/components/slide-editor/text/StaticHtmlTextLayer";
@@ -1374,13 +1381,14 @@ function TemplateV2KonvaSlideComponent({
       elementSelection: ElementSelection,
       rowIndex: number,
       colIndex: number,
+      extend?: boolean | TableCellAddress,
     ) => {
       activateSurface(elementSelection);
       setSelection(elementSelection);
       clearInlineEdit();
       setVectorEditSelection(null);
       setIconEditorSelection(null);
-      selectTableCellSelection(elementSelection, rowIndex, colIndex);
+      selectTableCellSelection(elementSelection, rowIndex, colIndex, extend);
     },
     [activateSurface, clearInlineEdit, selectTableCellSelection],
   );
@@ -3230,7 +3238,32 @@ function TemplateV2KonvaSlideComponent({
           ui={uiDraft}
         />
       ) : null}
-      {!infographicCanvasSelection ? <TemplateV2SelectionToolbar
+      {isEditMode &&
+      !editingTableCell &&
+      tableToolbarTarget &&
+      floatingToolbarAnchorBox &&
+      hasTableCellRange(toolbarSelectedTableCell) ? (
+        <TextToolbar
+          element={{
+            type: "text",
+            runs: [],
+            font: selectedTableCellFont(
+              tableToolbarTarget.element,
+              toolbarSelectedTableCell,
+            ),
+          }}
+          index={0}
+          anchorBox={floatingToolbarAnchorBox}
+          scale={1}
+          templateFonts={templateFonts}
+          onChange={() => undefined}
+          onFontChange={(patch) =>
+            applyTableToolbarElementChange(
+              formatTableCells(tableToolbarTarget.element, toolbarSelectedTableCell, patch),
+            )
+          }
+        />
+      ) : !infographicCanvasSelection ? <TemplateV2SelectionToolbar
         anchorBox={floatingToolbarAnchorBox}
         canUngroupComponent={canUngroupSelectedComponent}
         canUngroupLayoutTarget={canUngroupLayoutTargetComponent}

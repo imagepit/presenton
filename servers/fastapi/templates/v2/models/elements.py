@@ -312,6 +312,10 @@ class Table(BaseModel):
         list[Annotated[float, Field(gt=0, allow_inf_nan=False)]]
     ] = None
 
+    row_heights: Optional[
+        list[Annotated[float, Field(gt=0, allow_inf_nan=False)]]
+    ] = None
+
     # Schema
     decorative: bool
     name: str

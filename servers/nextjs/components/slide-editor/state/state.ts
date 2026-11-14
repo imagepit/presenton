@@ -11,11 +11,11 @@ export type ShapeSlideElement = Extract<
 export type TableSlideElement = Extract<SlideElement, { type: "table" }>;
 export type ChartSlideElement = Extract<SlideElement, { type: "chart" }>;
 export type SvgSlideElement = Extract<SlideElement, { type: "svg" }>;
-export type TableCellSelection = {
+export type TableCellAddress = { rowIndex: number; colIndex: number };
+export type TableCellSelection = TableCellAddress & {
   elementIndex: number;
   elementPath?: string | null;
-  rowIndex: number;
-  colIndex: number;
+  anchor?: TableCellAddress;
 };
 
 export { useTableCellSelection } from "@/components/slide-editor/tables/useTableCellSelection";

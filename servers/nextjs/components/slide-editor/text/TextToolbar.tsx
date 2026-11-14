@@ -139,6 +139,7 @@ export function TextToolbar({
   selectionRange,
   templateFonts = EMPTY_TEMPLATE_FONTS,
   onChange,
+  onFontChange,
   onListMarkerChange,
 }: {
   element: TextSlideElement;
@@ -156,6 +157,7 @@ export function TextToolbar({
   selectionRange?: TextSelectionRange | null;
   templateFonts?: TemplateFontOption[];
   onChange: (index: number, element: TextSlideElement) => void;
+  onFontChange?: (patch: Partial<Font>) => void;
   onListMarkerChange?: (marker: Marker) => void;
 }) {
   const activeSelectionRange = normalizedTextSelectionRange(
@@ -204,6 +206,10 @@ export function TextToolbar({
     scaleY: 1,
   });
   const updateFont = (fontPatch: Partial<Font>) => {
+    if (onFontChange) {
+      onFontChange(fontPatch);
+      return;
+    }
     onChange(
       index,
       activeSelectionRange
@@ -557,59 +563,63 @@ export function TextToolbar({
             >
               <Underline size={18} strokeWidth={2.25} aria-hidden="true" />
             </ToolbarButton>
-            <ToolbarButton
-              title={
-                selectionIsLatex
-                  ? "Convert LaTeX to text"
-                  : "Convert selected text to LaTeX"
-              }
-              controlId="latex"
-              disabled={!latexToggleRange}
-              hoveredControl={hoveredControl}
-              pressed={selectionIsLatex}
-              setHoveredControl={setHoveredControl}
-              onClick={() => {
-                if (!latexToggleRange) return;
-                onChange(
-                  index,
-                  toggleTextRunLatexForSelection(
-                    element,
-                    latexToggleRange,
-                  ),
-                );
-              }}
-            >
-              <Sigma size={18} strokeWidth={2.2} aria-hidden="true" />
-            </ToolbarButton>
-            <ToolbarButton
-              title={
-                disableAlignment
-                  ? "Alignment is unavailable for list text"
-                  : "Horizontal alignment"
-              }
-              controlId="horizontal-alignment"
-              disabled={disableAlignment}
-              hoveredControl={hoveredControl}
-              setHoveredControl={setHoveredControl}
-              onClick={() =>
-                updateAlignment({
-                  horizontal:
-                    horizontalAlignment === "left"
-                      ? "center"
-                      : horizontalAlignment === "center"
-                        ? "right"
-                        : horizontalAlignment === "right"
-                          ? "justify"
-                          : "left",
-                })
-              }
-            >
-              <HorizontalAlignmentIcon
-                size={18}
-                strokeWidth={2.2}
-                aria-hidden="true"
-              />
-            </ToolbarButton>
+            {!onFontChange ? (
+              <ToolbarButton
+                title={
+                  selectionIsLatex
+                    ? "Convert LaTeX to text"
+                    : "Convert selected text to LaTeX"
+                }
+                controlId="latex"
+                disabled={!latexToggleRange}
+                hoveredControl={hoveredControl}
+                pressed={selectionIsLatex}
+                setHoveredControl={setHoveredControl}
+                onClick={() => {
+                  if (!latexToggleRange) return;
+                  onChange(
+                    index,
+                    toggleTextRunLatexForSelection(
+                      element,
+                      latexToggleRange,
+                    ),
+                  );
+                }}
+              >
+                <Sigma size={18} strokeWidth={2.2} aria-hidden="true" />
+              </ToolbarButton>
+            ) : null}
+            {!onFontChange ? (
+              <ToolbarButton
+                title={
+                  disableAlignment
+                    ? "Alignment is unavailable for list text"
+                    : "Horizontal alignment"
+                }
+                controlId="horizontal-alignment"
+                disabled={disableAlignment}
+                hoveredControl={hoveredControl}
+                setHoveredControl={setHoveredControl}
+                onClick={() =>
+                  updateAlignment({
+                    horizontal:
+                      horizontalAlignment === "left"
+                        ? "center"
+                        : horizontalAlignment === "center"
+                          ? "right"
+                          : horizontalAlignment === "right"
+                            ? "justify"
+                            : "left",
+                  })
+                }
+              >
+                <HorizontalAlignmentIcon
+                  size={18}
+                  strokeWidth={2.2}
+                  aria-hidden="true"
+                />
+              </ToolbarButton>
+            ) : null}
           </div>
           <Divider />
           {hasListMarkerControls ? (

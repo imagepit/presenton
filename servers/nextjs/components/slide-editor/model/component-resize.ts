@@ -1,4 +1,4 @@
-import { resizeTableColumnWidths } from "@/components/slide-editor/tables/table-columns";
+import { scaleTableTrackSizes } from "@/components/slide-editor/tables/table-tracks";
 import {
   asRecord,
   readArray,
@@ -139,9 +139,10 @@ export function resizeRawElementBounds(
           }
         : {}),
       ...(type === "table" && element.column_widths != null
-        ? {
-            column_widths: resizeTableColumnWidths(element.column_widths, safeScaleX),
-          }
+        ? { column_widths: scaleTableTrackSizes(element.column_widths, safeScaleX) }
+        : {}),
+      ...(type === "table" && element.row_heights != null
+        ? { row_heights: scaleTableTrackSizes(element.row_heights, safeScaleY) }
         : {}),
       ...(polygonPoints.length > 0
         ? {
