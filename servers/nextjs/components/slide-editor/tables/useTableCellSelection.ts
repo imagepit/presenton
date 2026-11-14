@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { TableCellSelection } from "@/components/slide-editor/state/state";
+import type { TableCellAddress, TableCellSelection } from "@/components/slide-editor/state/state";
 
 type ElementSelectionLike = {
   elementPath: number[];
@@ -72,11 +72,18 @@ export function useTableCellSelection<
       elementSelection: TElementSelection,
       rowIndex: number,
       colIndex: number,
+      extend: boolean | TableCellAddress = false,
     ) => {
       setEditingTableCell(null);
-      setSelectedTableCell(
-        cellSelectionFor(elementSelection, rowIndex, colIndex),
-      );
+      const next = cellSelectionFor(elementSelection, rowIndex, colIndex);
+      setSelectedTableCell((current) => {
+        const anchor = typeof extend === "object"
+          ? extend
+          : extend && current?.elementPath === next.elementPath
+            ? current?.anchor ?? current
+            : undefined;
+        return anchor ? { ...next, anchor } : next;
+      });
     },
     [cellSelectionFor],
   );

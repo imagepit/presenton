@@ -1,7 +1,11 @@
+import { useRef, useState } from "react";
+import type Konva from "konva";
 import { Group, Line, Rect, Text } from "react-konva";
-import { tableColumnFrames } from "@/components/slide-editor/tables/table-columns";
+import type { TableCellAddress, TableCellSelection } from "@/components/slide-editor/state/state";
+import type { Size, TableElement, TextRun } from "@/components/slide-editor/types";
+import { tableCellRange } from "@/components/slide-editor/tables/table-cell-style";
+import { moveTableBoundary, tableTrackFrames } from "@/components/slide-editor/tables/table-tracks";
 import { renderMarkdownTextRuns } from "@/components/slide-editor/text/markdown-text";
-import type { TextRun } from "@/components/slide-editor/types";
 import {
   layoutRichText,
   renderKonvaTextSegment,
@@ -27,6 +31,16 @@ type RenderTextFont = {
   opacity: number;
 };
 
+type TableTracks = Required<Pick<TableElement, "column_widths" | "row_heights">>;
+export type TableResize = (tracks: Partial<TableTracks>, size: Size) => void;
+
+type BoundaryDrag = {
+  index: number;
+  origin: number;
+  sizes: number[];
+  next: number[];
+};
+
 export function TemplateV2TableElement({
   element,
   width,
@@ -35,26 +49,135 @@ export function TemplateV2TableElement({
   selectedCell,
   onCellSelect,
   onCellEdit,
+  onResize,
 }: {
   element: RawElement;
   width: number;
   height: number;
   interactive: boolean;
-  selectedCell?: { rowIndex: number; colIndex: number } | null;
-  onCellSelect?: (rowIndex: number, colIndex: number) => void;
+  selectedCell?: TableCellSelection | null;
+  onCellSelect?: (
+    rowIndex: number,
+    colIndex: number,
+    extend?: boolean | TableCellAddress,
+  ) => void;
   onCellEdit?: (rowIndex: number, colIndex: number) => void;
+  onResize?: TableResize;
 }) {
   const rows = rawTableRows(element);
   const rowCount = Math.max(1, rows.length);
   const colCount = Math.max(1, ...rows.map((row) => row.length));
-  const columns = tableColumnFrames(element.column_widths, colCount, width);
-  const cellH = height / rowCount;
+  const group = useRef<Konva.Group>(null);
+  const selectionStart = useRef<{
+    address: TableCellAddress;
+    lastRow: number;
+    lastColumn: number;
+    moved: boolean;
+  } | null>(null);
+  const resizeStart = useRef<BoundaryDrag | null>(null);
+  const [draft, setDraft] = useState<{
+    axis: keyof TableTracks;
+    index: number;
+    sizes: number[];
+  } | null>(null);
+  const columnSizes = draft?.axis === "column_widths" ? draft.sizes : element.column_widths;
+  const rowSizes = draft?.axis === "row_heights" ? draft.sizes : element.row_heights;
+  const tableW = draft?.axis === "column_widths" ? total(draft.sizes) : width;
+  const tableH = draft?.axis === "row_heights" ? total(draft.sizes) : height;
+  const columns = tableTrackFrames(columnSizes, colCount, tableW);
+  const rowFrames = tableTrackFrames(rowSizes, rowCount, tableH);
   const font = rawFont(element);
 
+  function boundaryPosition(axis: keyof TableTracks) {
+    const point = group.current?.getRelativePointerPosition();
+    return axis === "column_widths" ? point?.x : point?.y;
+  }
+
+  function resizeBoundary(axis: keyof TableTracks, index: number) {
+    const isColumn = axis === "column_widths";
+    const frames = isColumn ? columns : rowFrames;
+    const edge = frames[index - 1];
+    const position = edge.x + edge.width;
+    const startBoundaryDrag = () => {
+      const sizes = frames.map((frame) => frame.width);
+      resizeStart.current = {
+        index,
+        origin: boundaryPosition(axis) ?? position,
+        sizes,
+        next: sizes,
+      };
+    };
+    return (
+      <Line
+        key={`${axis}-${index}`}
+        points={isColumn ? [position, 0, position, tableH] : [0, position, tableW, position]}
+        stroke={draft?.axis === axis && draft.index === index ? "#7C51F8" : "transparent"}
+        strokeWidth={1}
+        hitStrokeWidth={10}
+        draggable
+        onMouseEnter={(event) => {
+          const container = event.target.getStage()?.container();
+          if (container) container.style.cursor = isColumn ? "col-resize" : "row-resize";
+          event.currentTarget.setAttr("stroke", "#7C51F8");
+        }}
+        onMouseLeave={(event) => {
+          const container = event.target.getStage()?.container();
+          if (container) container.style.cursor = "";
+          if (!resizeStart.current) event.currentTarget.setAttr("stroke", "transparent");
+        }}
+        onMouseDown={(event) => {
+          event.cancelBubble = true;
+          startBoundaryDrag();
+        }}
+        onTouchStart={(event) => {
+          event.cancelBubble = true;
+          startBoundaryDrag();
+        }}
+        onClick={(event) => {
+          event.cancelBubble = true;
+          resizeStart.current = null;
+        }}
+        onTap={(event) => {
+          event.cancelBubble = true;
+          resizeStart.current = null;
+        }}
+        onDragStart={(event) => {
+          event.cancelBubble = true;
+          if (!resizeStart.current) startBoundaryDrag();
+        }}
+        onDragMove={(event) => {
+          event.cancelBubble = true;
+          event.target.position({ x: 0, y: 0 });
+          const drag = resizeStart.current;
+          const pointer = boundaryPosition(axis);
+          if (!drag || pointer === undefined) return;
+          drag.next = moveTableBoundary(drag.sizes, drag.index, pointer - drag.origin);
+          setDraft({ axis, index, sizes: drag.next });
+        }}
+        onDragEnd={(event) => {
+          event.cancelBubble = true;
+          event.target.position({ x: 0, y: 0 });
+          event.currentTarget.setAttr("stroke", "transparent");
+          const container = event.target.getStage()?.container();
+          if (container) container.style.cursor = "";
+          const drag = resizeStart.current;
+          resizeStart.current = null;
+          setDraft(null);
+          if (!drag || drag.next.every((size, i) => size === drag.sizes[i])) return;
+          onResize?.({ [axis]: drag.next }, {
+            width: isColumn ? total(drag.next) : width,
+            height: isColumn ? height : total(drag.next),
+          });
+        }}
+      />
+    );
+  }
+
   return (
-    <Group listening={interactive}>
+    <Group ref={group} listening={interactive}>
       {rows.map((row, rowIndex) =>
         columns.map(({ x, width: cellW }, colIndex) => {
+          const { x: y, width: cellH } = rowFrames[rowIndex];
           const cell = asRecord(row[colIndex]) ?? {};
           const firstRun = asRecord(readArray(cell.runs)[0]) ?? {};
           const cellFont = fontFromRecord(
@@ -95,11 +218,32 @@ export function TemplateV2TableElement({
             <Group
               key={`${rowIndex}-${colIndex}`}
               x={x}
-              y={rowIndex * cellH}
+              y={y}
+              onMouseDown={(event) => {
+                if (!interactive || event.evt.button !== 0) return;
+                event.cancelBubble = true;
+                selectionStart.current = {
+                  address: { rowIndex, colIndex },
+                  lastRow: rowIndex,
+                  lastColumn: colIndex,
+                  moved: false,
+                };
+              }}
+              onMouseMove={(event) => {
+                const start = selectionStart.current;
+                if (!interactive || !start || (event.evt.buttons & 1) === 0) return;
+                if (start.lastRow === rowIndex && start.lastColumn === colIndex) return;
+                start.moved = true;
+                start.lastRow = rowIndex;
+                start.lastColumn = colIndex;
+                onCellSelect?.(rowIndex, colIndex, start.address);
+              }}
               onClick={(event) => {
                 if (!interactive) return;
                 event.cancelBubble = true;
-                onCellSelect?.(rowIndex, colIndex);
+                const moved = selectionStart.current?.moved;
+                selectionStart.current = null;
+                if (!moved) onCellSelect?.(rowIndex, colIndex, event.evt.shiftKey);
               }}
               onTap={(event) => {
                 if (!interactive) return;
@@ -143,17 +287,23 @@ export function TemplateV2TableElement({
                 align={readString(cell.alignment) ?? "left"}
                 verticalAlign="middle"
                 lineHeight={cellLineHeight}
+                clip={Array.isArray(rowSizes)}
               />
             </Group>
           );
         }),
       )}
       <SelectedTableCellOutline
-        cellH={cellH}
         columns={columns}
-        rowCount={rowCount}
+        rows={rowFrames}
         selectedCell={selectedCell}
       />
+      {interactive && onResize && (
+        <>
+          {columns.map((_, i) => resizeBoundary("column_widths", i + 1))}
+          {rowFrames.map((_, i) => resizeBoundary("row_heights", i + 1))}
+        </>
+      )}
     </Group>
   );
 }
@@ -220,6 +370,7 @@ function TableCellText({
   align,
   verticalAlign,
   lineHeight,
+  clip,
 }: {
   x: number;
   y: number;
@@ -230,6 +381,7 @@ function TableCellText({
   align: string;
   verticalAlign: string;
   lineHeight: number;
+  clip: boolean;
 }) {
   const baseFont = { ...font, lineHeight };
   const renderRuns = runs.map((run) => ({
@@ -251,7 +403,13 @@ function TableCellText({
   );
 
   return (
-    <Group x={x} y={y} listening={false}>
+    <Group
+      x={x}
+      y={y}
+      clipWidth={clip ? width : undefined}
+      clipHeight={clip ? height : undefined}
+      listening={false}
+    >
       {tokens.map((token, index) => (
         token.type === "latex" && token.latex ? (
           <LatexRunNode
@@ -295,33 +453,39 @@ function TableCellText({
 }
 
 function SelectedTableCellOutline({
-  cellH,
   columns,
-  rowCount,
+  rows,
   selectedCell,
 }: {
-  cellH: number;
-  columns: ReturnType<typeof tableColumnFrames>;
-  rowCount: number;
-  selectedCell?: { rowIndex: number; colIndex: number } | null;
+  columns: ReturnType<typeof tableTrackFrames>;
+  rows: ReturnType<typeof tableTrackFrames>;
+  selectedCell?: TableCellSelection | null;
 }) {
   if (!selectedCell) return null;
-  const column = columns[selectedCell.colIndex];
-  if (!column) return null;
-  if (selectedCell.rowIndex < 0 || selectedCell.rowIndex >= rowCount) return null;
+  const range = tableCellRange(selectedCell);
+  const left = columns[range.left];
+  const right = columns[range.right];
+  const top = rows[range.top];
+  const bottom = rows[range.bottom];
+  if (!left || !right || !top || !bottom) return null;
+  const isRange = range.left !== range.right || range.top !== range.bottom;
 
   return (
     <Rect
-      x={column.x}
-      y={selectedCell.rowIndex * cellH}
-      width={column.width}
-      height={cellH}
-      fill="rgba(0,0,0,0)"
+      x={left.x}
+      y={top.x}
+      width={right.x + right.width - left.x}
+      height={bottom.x + bottom.width - top.x}
+      fill={isRange ? "rgba(124,81,248,0.10)" : "transparent"}
       stroke="#7C51F8"
       strokeWidth={2}
       listening={false}
     />
   );
+}
+
+function total(sizes: number[]) {
+  return sizes.reduce((sum, size) => sum + size, 0);
 }
 
 function rawTableRows(element: RawElement) {

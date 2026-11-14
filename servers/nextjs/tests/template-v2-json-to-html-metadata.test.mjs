@@ -185,24 +185,27 @@ test("captures Mermaid captions only when preparing PPTX output", () => {
   assert.doesNotMatch(pdf, /data-screenshot/);
 });
 
-test("renders saved column widths and keeps legacy tables equal", () => {
+test("renders saved column widths and row heights, with equal legacy tracks", () => {
   const table = {
     type: "table",
     size: { width: 900, height: 80 },
     columns: ["Product", "Maintainer", "Description"].map((text) => ({
       runs: [{ text }],
     })),
-    rows: [],
+    rows: [[{ runs: [{ text: "Temurin" }] }]],
   };
   const renderTable = (element) =>
     renderer.templateV2UiToHtmlFragment({ elements: [element] });
 
-  assert.match(
-    renderTable({ ...table, column_widths: [180, 180, 540] }),
-    /grid-template-columns:minmax\(0,20fr\) minmax\(0,20fr\) minmax\(0,60fr\)/,
-  );
+  const resized = renderTable({
+    ...table,
+    column_widths: [180, 180, 540],
+    row_heights: [20, 60],
+  });
+  assert.match(resized, /grid-template-columns:minmax\(0,20fr\) minmax\(0,20fr\) minmax\(0,60fr\)/);
+  assert.match(resized, /grid-template-rows:minmax\(0,25fr\) minmax\(0,75fr\)/);
   assert.match(
     renderTable(table),
-    /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/,
+    /grid-template-columns:repeat\(3,minmax\(0,1fr\)\);grid-template-rows:repeat\(2,minmax\(0,1fr\)\)/,
   );
 });

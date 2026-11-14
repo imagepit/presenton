@@ -26,17 +26,15 @@ import type {
 import { withHash } from "@/components/slide-editor/utils/color";
 import {
   elementBox,
-  setTableRowsFromStrings,
   tableRowsAsStrings,
 } from "@/components/slide-editor/model/element-model";
 import type { TableCell } from "@/components/slide-editor/types";
 import {
-  fitTableColumnWidths,
-  minimumTableColumnPercent,
-  readTableColumnWidths,
+  fitTableTrackSizes,
+  readTableTrackSizes,
   setTableColumnPercent,
-  tableColumnFrames,
-} from "@/components/slide-editor/tables/table-columns";
+  tableTrackFrames,
+} from "@/components/slide-editor/tables/table-tracks";
 import { DeferredColorInput } from "@/components/slide-editor/toolbar/DeferredColorInput";
 import {
   FloatingToolbar,
@@ -98,8 +96,8 @@ export function TableToolbarControls({
           : AlignLeft;
   const canAddRow = rows.length < 8;
   const tableWidth = Math.max(1, elementBox(element).w);
-  const savedWidths = readTableColumnWidths(element.column_widths, columnCount);
-  const columnWidths = tableColumnFrames(
+  const savedWidths = readTableTrackSizes(element.column_widths, columnCount);
+  const columnWidths = tableTrackFrames(
     savedWidths,
     columnCount,
     tableWidth,
@@ -124,32 +122,36 @@ export function TableToolbarControls({
     return () => window.removeEventListener("pointerdown", onPointerDown);
   }, [tableMenuOpen]);
 
-  const normalizeRows = (nextRows: string[][]) =>
-    nextRows.map((row) =>
-      Array.from({ length: columnCount }, (_, colIndex) => row[colIndex] ?? ""),
-    );
-
-  const commitRows = (nextRows: string[][]) => {
-    onChange(index, setTableRowsFromStrings(element, nextRows));
+  const updateRows = (remove: boolean) => {
+    const nextRows = [element.columns, ...element.rows];
+    const tableHeight = Math.max(1, elementBox(element).h);
+    const savedHeights = readTableTrackSizes(element.row_heights, nextRows.length);
+    const rowIndex = remove ? activeRow : activeRow + 1;
+    const heights = savedHeights?.slice();
+    if (remove) {
+      nextRows.splice(rowIndex, 1);
+      heights?.splice(rowIndex, 1);
+    } else {
+      nextRows.splice(rowIndex, 0, Array.from({ length: columnCount }, () => ({ runs: [] })));
+      heights?.splice(rowIndex, 0, tableHeight / rows.length);
+    }
+    const [columns, ...body] = nextRows;
+    onChange(index, {
+      ...element,
+      columns,
+      rows: body,
+      row_heights: heights ? fitTableTrackSizes(heights, tableHeight) : null,
+    });
   };
 
   const addRow = () => {
     if (!canAddRow) return;
-    const nextRows = normalizeRows(rows);
-    const insertIndex = Math.min(nextRows.length, activeRow + 1);
-    nextRows.splice(
-      insertIndex,
-      0,
-      Array.from({ length: columnCount }, () => ""),
-    );
-    commitRows(nextRows);
+    updateRows(false);
   };
 
   const deleteRow = () => {
     if (!canDeleteRow) return;
-    const nextRows = normalizeRows(rows);
-    nextRows.splice(activeRow, 1);
-    commitRows(nextRows);
+    updateRows(true);
   };
 
   const updateColumns = (change: (indices: (number | null)[]) => void) => {
@@ -167,7 +169,7 @@ export function TableToolbarControls({
       columns: updateCells(element.columns),
       rows: element.rows.map(updateCells),
       column_widths: savedWidths
-        ? fitTableColumnWidths(
+        ? fitTableTrackSizes(
             indices.map((oldIndex) =>
               oldIndex === null ? tableWidth / columnCount : columnWidths[oldIndex],
             ),
@@ -442,7 +444,6 @@ function TableToolbarMenu({
   onMoveColumnRight: () => void;
 }) {
   if (!menuOpen) return null;
-  const minimum = minimumTableColumnPercent(columnCount);
 
   return (
     <FloatingToolbarPanel style={menuStyle}>
@@ -488,8 +489,8 @@ function TableToolbarMenu({
                 name="width"
                 type="number"
                 required
-                min={minimum}
-                max={100 - minimum}
+                min={0}
+                max={100}
                 step="any"
                 defaultValue={columnPercent}
                 style={{

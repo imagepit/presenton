@@ -1,5 +1,5 @@
 import { resolveBackendAssetUrl } from "@/utils/api";
-import { readTableColumnWidths } from "@/components/slide-editor/tables/table-columns";
+import { readTableTrackSizes } from "@/components/slide-editor/tables/table-tracks";
 import { chartDataFromSeriesWithColors } from "@/components/slide-editor/charts/chart-data";
 import { renderMarkdownTextRuns } from "@/components/slide-editor/text/markdown-text";
 import {
@@ -864,10 +864,11 @@ function adaptTable(raw: UnknownRecord): SlideElement {
     font: adaptFont(readRecord(raw, "font")),
     columns,
     rows: rows.length > 0 ? rows : [columns],
-    column_widths: readTableColumnWidths(
+    column_widths: readTableTrackSizes(
       raw.column_widths,
       Math.max(columns.length, ...rows.map((row) => row.length)),
     ),
+    row_heights: readTableTrackSizes(raw.row_heights, Math.max(1, rows.length) + 1),
     max_columns: readNumber(raw, "max_columns"),
     min_columns: readNumber(raw, "min_columns"),
     max_rows: readNumber(raw, "max_rows"),

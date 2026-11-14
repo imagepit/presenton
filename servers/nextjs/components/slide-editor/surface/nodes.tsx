@@ -47,7 +47,7 @@ import {
   HTML_TEXT_WIDTH_ATTR,
   shouldRenderTextElementAsHtml,
 } from "@/components/slide-editor/text/html-text-attrs";
-import type { TableCellSelection } from "@/components/slide-editor/state/state";
+import type { TableCellAddress, TableCellSelection } from "@/components/slide-editor/state/state";
 import { codeBlockContentScale, readImagepitCodeBlock } from "@/lib/imagepit-code-block";
 import { readOptionalSize } from "@/components/slide-editor/model/core";
 import { loadKonvaImage } from "@/components/slide-editor/surface/exportAssets";
@@ -57,8 +57,11 @@ import {
   type LatestFrameBatch,
 } from "@/components/slide-editor/surface/latestFrameBatch";
 import { TemplateV2ChartJsElement as RawChartElement } from "@/components/slide-editor/charts/TemplateV2ChartJsElement";
-import { resizeTableColumnWidths } from "@/components/slide-editor/tables/table-columns";
-import { TemplateV2TableElement as RawTableElement } from "@/components/slide-editor/tables/TemplateV2TableElement";
+import { scaleTableTrackSizes } from "@/components/slide-editor/tables/table-tracks";
+import {
+  TemplateV2TableElement as RawTableElement,
+  type TableResize,
+} from "@/components/slide-editor/tables/TemplateV2TableElement";
 import { blackOrWhiteTextColor } from "@/components/slide-editor/tables/table-colors";
 import { LatexRunNode } from "@/components/slide-editor/math/LatexRunNode";
 import { buildSvgUpdateUrl } from "@/lib/svg-color";
@@ -820,6 +823,7 @@ export function RawComponentNode({
     selection: ElementSelection,
     rowIndex: number,
     colIndex: number,
+    extend?: boolean | TableCellAddress,
   ) => void;
   onTableCellEdit: (
     selection: ElementSelection,
@@ -1286,6 +1290,7 @@ function RawElementNode({
     selection: ElementSelection,
     rowIndex: number,
     colIndex: number,
+    extend?: boolean | TableCellAddress,
   ) => void;
   onTableCellEdit: (
     selection: ElementSelection,
@@ -1387,8 +1392,8 @@ function RawElementNode({
     if (!isSelected || !isVector) setVectorDragPreview(null);
   }, [isSelected, isVector]);
   const handleTableCellSelect = useCallback(
-    (rowIndex: number, colIndex: number) => {
-      onTableCellSelect(selection, rowIndex, colIndex);
+    (rowIndex: number, colIndex: number, extend?: boolean | TableCellAddress) => {
+      onTableCellSelect(selection, rowIndex, colIndex, extend);
     },
     [onTableCellSelect, selection],
   );
@@ -1675,9 +1680,17 @@ function RawElementNode({
                 size: nextSize,
                 ...(type === "table" && current.column_widths != null
                   ? {
-                      column_widths: resizeTableColumnWidths(
+                      column_widths: scaleTableTrackSizes(
                         current.column_widths,
                         sourceBox.width > 0 ? nextSize.width / sourceBox.width : 1,
+                      ),
+                    }
+                  : {}),
+                ...(type === "table" && current.row_heights != null
+                  ? {
+                      row_heights: scaleTableTrackSizes(
+                        current.row_heights,
+                        sourceBox.height > 0 ? nextSize.height / sourceBox.height : 1,
                       ),
                     }
                   : {}),
@@ -1910,6 +1923,13 @@ function RawElementNode({
           selectedTableCell={selectedCell}
           onTableCellSelect={handleTableCellSelect}
           onTableCellEdit={handleTableCellEdit}
+          onTableResize={isSelected ? (tracks, size) => {
+            onElementChange(selection, (current) => ({
+              ...current,
+              ...tracks,
+              size,
+            }));
+          } : undefined}
           onInfographicItemInsert={handleInfographicItemInsert}
           fontRevision={fontRevision}
         />
@@ -2249,6 +2269,7 @@ function RawElementVisual({
   selectedTableCell,
   onTableCellSelect,
   onTableCellEdit,
+  onTableResize,
   onInfographicItemInsert,
   fontRevision,
 }: {
@@ -2258,8 +2279,9 @@ function RawElementVisual({
   interactive: boolean;
   vectorOriginBox?: Box | null;
   selectedTableCell: TableCellSelection | null;
-  onTableCellSelect: (rowIndex: number, colIndex: number) => void;
+  onTableCellSelect: (rowIndex: number, colIndex: number, extend?: boolean | TableCellAddress) => void;
   onTableCellEdit: (rowIndex: number, colIndex: number) => void;
+  onTableResize?: TableResize;
   onInfographicItemInsert: (
     itemPath: number[],
     collection: "items" | "rows",
@@ -2438,6 +2460,7 @@ function RawElementVisual({
         selectedCell={selectedTableCell}
         onCellSelect={onTableCellSelect}
         onCellEdit={onTableCellEdit}
+        onResize={onTableResize}
       />
     );
   }
@@ -2498,6 +2521,7 @@ const MemoizedRawElementVisual = memo(
     previous.selectedTableCell === next.selectedTableCell &&
     previous.onTableCellSelect === next.onTableCellSelect &&
     previous.onTableCellEdit === next.onTableCellEdit &&
+    previous.onTableResize === next.onTableResize &&
     previous.onInfographicItemInsert === next.onInfographicItemInsert &&
     previous.fontRevision === next.fontRevision,
 );
