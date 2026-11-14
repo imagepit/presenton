@@ -78,7 +78,7 @@ export function ImagepitCodeBlockEditor({
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
       <DialogContent className="z-[11000] max-h-[90vh] w-[min(94vw,1200px)] max-w-none overflow-auto" data-inline-edit-ignore="true">
-        <DialogTitle>Edit Code Block</DialogTitle>
+        <DialogTitle>{source.output ? "Edit Command" : "Edit Code Block"}</DialogTitle>
         <DialogDescription>Edit the source and preview its line highlights and callouts.</DialogDescription>
         <div className="grid gap-5 lg:grid-cols-[1fr_580px]">
           <fieldset disabled={saving} className="grid min-w-0 gap-3">
@@ -91,7 +91,7 @@ export function ImagepitCodeBlockEditor({
               </select>
             </label>
             <label className="grid gap-1 text-sm font-medium">
-              File name
+              {source.output ? "Title" : "File name"}
               <input className={inputClass} maxLength={160} value={source.filename} onChange={(event) => update("filename", event.target.value)} />
             </label>
             <label className="grid gap-1 text-sm font-medium">
@@ -99,10 +99,24 @@ export function ImagepitCodeBlockEditor({
               <input className={inputClass} maxLength={40} value={source.language} onChange={(event) => update("language", event.target.value)} />
             </label>
             <label className="grid gap-1 text-sm font-medium">
-              Code source
-              <textarea className={`${inputClass} min-h-64 font-mono`} spellCheck={false} maxLength={CODE_BLOCK_MAX_LENGTH}
+              {source.output ? "Command source" : "Code source"}
+              <textarea className={`${inputClass} ${source.output ? "min-h-28" : "min-h-64"} font-mono`} spellCheck={false} maxLength={CODE_BLOCK_MAX_LENGTH}
                 value={source.code} onChange={(event) => update("code", event.target.value)} />
             </label>
+            {source.output && (
+              <label className="grid gap-1 text-sm font-medium">
+                Command output
+                <textarea
+                  className={`${inputClass} min-h-28 font-mono`}
+                  spellCheck={false}
+                  maxLength={CODE_BLOCK_MAX_LENGTH}
+                  value={source.output.code}
+                  onChange={(event) => {
+                    if (source.output) update("output", { ...source.output, code: event.target.value });
+                  }}
+                />
+              </label>
+            )}
           </fieldset>
           <section aria-label="Code preview" aria-busy={!node && !error}>
             <h3 className="mb-2 text-sm font-medium">Preview</h3>

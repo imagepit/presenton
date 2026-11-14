@@ -17,7 +17,7 @@ export async function GET() {
     web,
     slide,
     codeFonts,
-    "section.ip-react-slide .imagepit-slide-code-block > figure { margin: 0; }",
+    "section.ip-react-slide .imagepit-slide-code-block > :is(figure, .ui-exec-pair) { margin: 0; }",
   ].join("\n");
   return new Response(css, { headers: { "Content-Type": "text/css; charset=utf-8" } });
 }
