@@ -308,6 +308,9 @@ class Table(BaseModel):
     flip_v: Optional[bool] = None
     columns: list[TableCell]
     rows: list[list[TableCell]]
+    column_widths: Optional[
+        list[Annotated[float, Field(gt=0, allow_inf_nan=False)]]
+    ] = None
 
     # Schema
     decorative: bool

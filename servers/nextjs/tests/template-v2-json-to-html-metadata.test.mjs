@@ -184,3 +184,25 @@ test("captures Mermaid captions only when preparing PPTX output", () => {
   assert.match(pdf, /図2　公開までの流れ/);
   assert.doesNotMatch(pdf, /data-screenshot/);
 });
+
+test("renders saved column widths and keeps legacy tables equal", () => {
+  const table = {
+    type: "table",
+    size: { width: 900, height: 80 },
+    columns: ["Product", "Maintainer", "Description"].map((text) => ({
+      runs: [{ text }],
+    })),
+    rows: [],
+  };
+  const renderTable = (element) =>
+    renderer.templateV2UiToHtmlFragment({ elements: [element] });
+
+  assert.match(
+    renderTable({ ...table, column_widths: [180, 180, 540] }),
+    /grid-template-columns:minmax\(0,20fr\) minmax\(0,20fr\) minmax\(0,60fr\)/,
+  );
+  assert.match(
+    renderTable(table),
+    /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/,
+  );
+});

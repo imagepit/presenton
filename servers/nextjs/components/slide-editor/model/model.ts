@@ -1,6 +1,7 @@
 "use client";
 
 import type Konva from "konva";
+import { resizeTableColumnWidths } from "@/components/slide-editor/tables/table-columns";
 import type { SlideElement, TextRun } from "@/components/slide-editor/types";
 import type {
   TemplateV2InlineEditKind,
@@ -483,6 +484,11 @@ export function scaleRawElements(
               width: Math.max(1, explicitSize.width * scaleX),
               height: Math.max(1, explicitSize.height * scaleY),
             },
+          }
+        : {}),
+      ...(type === "table" && element.column_widths != null
+        ? {
+            column_widths: resizeTableColumnWidths(element.column_widths, scaleX),
           }
         : {}),
       ...(polygonPoints.length > 0

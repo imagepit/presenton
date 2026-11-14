@@ -1,4 +1,5 @@
 import { Group, Line, Rect, Text } from "react-konva";
+import { tableColumnFrames } from "@/components/slide-editor/tables/table-columns";
 import { renderMarkdownTextRuns } from "@/components/slide-editor/text/markdown-text";
 import type { TextRun } from "@/components/slide-editor/types";
 import {
@@ -46,14 +47,14 @@ export function TemplateV2TableElement({
   const rows = rawTableRows(element);
   const rowCount = Math.max(1, rows.length);
   const colCount = Math.max(1, ...rows.map((row) => row.length));
-  const cellW = width / colCount;
+  const columns = tableColumnFrames(element.column_widths, colCount, width);
   const cellH = height / rowCount;
   const font = rawFont(element);
 
   return (
     <Group listening={interactive}>
       {rows.map((row, rowIndex) =>
-        Array.from({ length: colCount }, (_, colIndex) => {
+        columns.map(({ x, width: cellW }, colIndex) => {
           const cell = asRecord(row[colIndex]) ?? {};
           const firstRun = asRecord(readArray(cell.runs)[0]) ?? {};
           const cellFont = fontFromRecord(
@@ -93,7 +94,7 @@ export function TemplateV2TableElement({
           return (
             <Group
               key={`${rowIndex}-${colIndex}`}
-              x={colIndex * cellW}
+              x={x}
               y={rowIndex * cellH}
               onClick={(event) => {
                 if (!interactive) return;
@@ -149,8 +150,7 @@ export function TemplateV2TableElement({
       )}
       <SelectedTableCellOutline
         cellH={cellH}
-        cellW={cellW}
-        colCount={colCount}
+        columns={columns}
         rowCount={rowCount}
         selectedCell={selectedCell}
       />
@@ -296,27 +296,25 @@ function TableCellText({
 
 function SelectedTableCellOutline({
   cellH,
-  cellW,
-  colCount,
+  columns,
   rowCount,
   selectedCell,
 }: {
-  cellH?: number;
-  cellW?: number;
-  colCount: number;
-  rowCount?: number;
+  cellH: number;
+  columns: ReturnType<typeof tableColumnFrames>;
+  rowCount: number;
   selectedCell?: { rowIndex: number; colIndex: number } | null;
 }) {
   if (!selectedCell) return null;
-  if (selectedCell.colIndex < 0 || selectedCell.colIndex >= colCount) return null;
-  if (cellW == null || cellH == null || rowCount == null) return null;
+  const column = columns[selectedCell.colIndex];
+  if (!column) return null;
   if (selectedCell.rowIndex < 0 || selectedCell.rowIndex >= rowCount) return null;
 
   return (
     <Rect
-      x={selectedCell.colIndex * cellW}
+      x={column.x}
       y={selectedCell.rowIndex * cellH}
-      width={cellW}
+      width={column.width}
       height={cellH}
       fill="rgba(0,0,0,0)"
       stroke="#7C51F8"

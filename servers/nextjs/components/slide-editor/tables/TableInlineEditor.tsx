@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { tableColumnFrames } from "@/components/slide-editor/tables/table-columns";
 import type {
   TableCellSelection,
   TableSlideElement,
@@ -69,9 +70,14 @@ export function TableInlineEditor({
   );
   const tableWidth = box.w * scale;
   const tableHeight = box.h * scale;
-  const cellWidth = tableWidth / columnCount;
+  const column = tableColumnFrames(
+    element.column_widths,
+    columnCount,
+    tableWidth,
+  )[colIndex];
+  const cellWidth = column.width;
   const cellHeight = tableHeight / rowCount;
-  const cellLeft = box.x * scale + colIndex * cellWidth;
+  const cellLeft = box.x * scale + column.x;
   const cellTop = box.y * scale + rowIndex * cellHeight;
   const paddingX = Math.max(4, 0.08 * scale);
   const paddingY = Math.max(3, 0.04 * scale);

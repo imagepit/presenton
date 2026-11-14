@@ -1972,6 +1972,8 @@ def _update_table_element(element: dict[str, Any], table: dict[str, Any]) -> Non
         raise ValueError("table row count is outside this element's limits.")
 
     existing_columns = _dicts(element.get("columns"))
+    if len(existing_columns) != column_count:
+        element.pop("column_widths", None)
     existing_rows = [
         _dicts(row) for row in element.get("rows", []) if isinstance(row, list)
     ]
