@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
+import json
 from io import BytesIO
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import HTTPException
@@ -23,7 +25,7 @@ R2 = "originals.r2.cloudflarestorage.com"
 
 
 def test_import_saves_only_reference_and_requires_deck_owner(tmp_path, monkeypatch):
-    doc_id, attachment_id = uuid4(), uuid4()
+    doc_id, attachment_id, second_doc = uuid4(), uuid4(), uuid4()
     image = BytesIO()
     Image.new("RGB", (2, 2), "red").save(image, format="PNG")
     png = image.getvalue()
@@ -40,12 +42,14 @@ def test_import_saves_only_reference_and_requires_deck_owner(tmp_path, monkeypat
         assert request.headers["authorization"] == "Bearer test-outline-token"
         if request.url.path == "/api/documents.info":
             assert request.headers["x-api-version"] == "3"
+            requested = UUID(json.loads(request.content)["id"])
+            assert requested in {doc_id, second_doc}
             return httpx.Response(
                 200,
                 json={
                     "data": {
                         "document": {
-                            "id": str(doc_id),
+                            "id": str(requested),
                             "title": "元ページ",
                             "language": "ja",
                             "revision": 1,
@@ -133,12 +137,41 @@ def test_import_saves_only_reference_and_requires_deck_owner(tmp_path, monkeypat
             assert response.headers["cache-control"] == "private, no-store"
         assert len(set(downloads)) == 3
 
+        second_ref = uuid4()
+        second_url = f"{PREFIX}/{second_ref}/image"
+
+        async def register_second_image():
+            async with sessions() as session:
+                slide = await session.get(SlideModel, UUID(deck.json()["slides"][0]["id"]))
+                slide.ui = {**slide.ui, "elements": [
+                    *slide.ui["elements"], {"type": "image", "data": second_url},
+                ]}
+                session.add(OutlineAssetReference(
+                    id=second_ref,
+                    presentation_id=UUID(deck_id),
+                    document_id=second_doc,
+                    document_revision=1,
+                    attachment_id=attachment_id,
+                    sha256=hashlib.sha256(png).hexdigest(),
+                    size_bytes=len(png),
+                    media_type="image/png",
+                ))
+                await session.commit()
+
+        asyncio.run(register_second_image())
+        assert client.get(second_url).status_code == 404
+        monkeypatch.setenv("OUTLINE_IMPORT_ADDITIONAL_DOCUMENT_IDS", str(second_doc))
+        assert client.get(second_url).content == png
+
         copy = client.post(f"{deck_path}/duplicate")
         assert copy.status_code == 200, copy.text
         copy_image_path = f"{PREFIX}/{copy.json()['id']}/image"
         assert copy.json()["slides"][0]["ui"]["elements"][2]["data"] == copy_image_path
+        second_copy = copy.json()["slides"][0]["ui"]["elements"][3]["data"]
+        assert second_copy != second_url
         assert client.delete(deck_path).status_code == 204
         assert client.get(copy_image_path).content == png
+        assert client.get(second_copy).content == png
 
         unavailable = True
         assert client.get(copy_image_path).status_code == 502
