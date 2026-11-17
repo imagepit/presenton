@@ -36,11 +36,33 @@ def test_import_saves_only_reference_and_requires_deck_owner(tmp_path, monkeypat
     signed_requests = []
     downloads = []
     unavailable = False
+    document_reads = []
 
     def outline_api(request):
         assert request.url.host == "outline.example"
+        if request.url.path == "/api/slideAssetReferences.redirect":
+            assert request.headers["authorization"] == "Bearer test-retention-token"
+            assert json.loads(request.content) == {
+                "documentId": str(doc_id),
+                "attachmentId": str(attachment_id),
+                "sha256": hashlib.sha256(png).hexdigest(),
+            }
+            return httpx.Response(302, headers={
+                "Location": f"https://{R2}/bucket/retained.png?X-Amz-Signature=retained"
+            })
+        if request.url.path == "/api/slideAssetReferences.retain":
+            assert request.headers["authorization"] == "Bearer test-retention-token"
+            assert json.loads(request.content) == {
+                "documentId": str(doc_id),
+                "attachmentId": str(attachment_id),
+                "sha256": hashlib.sha256(png).hexdigest(),
+                "bytes": len(png),
+                "mediaType": "image/png",
+            }
+            return httpx.Response(200, json={"success": True})
         assert request.headers["authorization"] == "Bearer test-outline-token"
         if request.url.path == "/api/documents.info":
+            document_reads.append(request.url.path)
             assert request.headers["x-api-version"] == "3"
             requested = UUID(json.loads(request.content)["id"])
             assert requested in {doc_id, second_doc}
@@ -173,6 +195,9 @@ def test_import_saves_only_reference_and_requires_deck_owner(tmp_path, monkeypat
         assert client.get(copy_image_path).content == png
         assert client.get(second_copy).content == png
 
+        monkeypatch.setenv("OUTLINE_IMPORT_RETAIN_API_TOKEN", "test-retention-token")
+        assert client.post(PREFIX, json={"page_url": PAGE}).status_code == 201
+
         unavailable = True
         assert client.get(copy_image_path).status_code == 502
         unavailable = False
@@ -181,6 +206,11 @@ def test_import_saves_only_reference_and_requires_deck_owner(tmp_path, monkeypat
         assert client.get(copy_image_path).status_code == 404
         assert client.post(PREFIX, json={"page_url": PAGE}).status_code == 422
         assert len(signed_requests) == before
+
+        reads = len(document_reads)
+        monkeypatch.setenv("OUTLINE_IMPORT_USE_RETAINED_ORIGINALS", "true")
+        assert client.get(copy_image_path).content == png
+        assert len(document_reads) == reads
 
         member = {"username": "member", "password": "secret456"}
         assert client.post("/api/v1/admin/users", json=member).status_code == 201

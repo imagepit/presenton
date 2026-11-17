@@ -16,6 +16,8 @@ from services.outline_slide_import import (
     outline_source,
     read_outline_document,
     read_outline_image,
+    read_retained_outline_image,
+    retain_outline_reference,
     summarize_outline,
 )
 
@@ -49,8 +51,9 @@ async def import_outline(
             raise HTTPException(422, "Outline source must contain text and one attached image")
         attachment = next(iter(attachments))
         image = await read_outline_image(client, settings, attachment)
-    summary = await summarize_outline(document, text)
-    presentation, slide, reference = build_outline_deck(document, summary, attachment, image)
+        summary = await summarize_outline(document, text)
+        presentation, slide, reference = build_outline_deck(document, summary, attachment, image)
+        await retain_outline_reference(client, settings, reference)
 
     session.add(presentation)
     await session.flush()
@@ -77,11 +80,14 @@ async def get_outline_image(
     if not settings.allows_document(reference.document_id) or owner_id != settings.owner_id:
         raise HTTPException(404, "Outline image not found")
     async with httpx.AsyncClient(follow_redirects=False, timeout=15, trust_env=False) as client:
-        document = await read_outline_document(client, settings, reference.document_id)
-        _, attachments = outline_source(document, settings)
-        if reference.attachment_id not in attachments:
-            raise HTTPException(404, "Outline attachment is no longer in this document")
-        image = await read_outline_image(client, settings, reference.attachment_id)
+        if settings.use_retained_originals:
+            image = await read_retained_outline_image(client, settings, reference)
+        else:
+            document = await read_outline_document(client, settings, reference.document_id)
+            _, attachments = outline_source(document, settings)
+            if reference.attachment_id not in attachments:
+                raise HTTPException(404, "Outline attachment is no longer in this document")
+            image = await read_outline_image(client, settings, reference.attachment_id)
     if (
         image.digest != reference.sha256
         or len(image.content) != reference.size_bytes

@@ -1,6 +1,6 @@
 """Load Outline attachments for a slide without persisting image bytes or signed URLs."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from io import BytesIO
 import os
@@ -34,6 +34,8 @@ class OutlineImportSettings:
     api_token: str
     r2_host: str
     additional_document_ids: frozenset[UUID] = frozenset()
+    retention_token: str | None = field(default=None, repr=False)
+    use_retained_originals: bool = False
 
     def allows_document(self, document_id: UUID) -> bool:
         return document_id == self.document_id or document_id in self.additional_document_ids
@@ -96,12 +98,18 @@ def outline_import_settings() -> OutlineImportSettings:
         token = os.environ["OUTLINE_IMPORT_API_TOKEN"].strip()
         if not token:
             raise ValueError
+        retention_token = os.getenv("OUTLINE_IMPORT_RETAIN_API_TOKEN", "").strip() or None
+        use_retained_originals = os.getenv("OUTLINE_IMPORT_USE_RETAINED_ORIGINALS") == "true"
+        if use_retained_originals and not retention_token:
+            raise ValueError
         return OutlineImportSettings(
             document_url=document_url,
             document_id=UUID(os.environ["OUTLINE_IMPORT_DOCUMENT_ID"]),
             owner_id=UUID(os.environ["OUTLINE_IMPORT_OWNER_ID"]),
             api_token=token,
             r2_host=r2_host,
+            retention_token=retention_token,
+            use_retained_originals=use_retained_originals,
             additional_document_ids=frozenset(
                 UUID(value.strip())
                 for value in os.getenv("OUTLINE_IMPORT_ADDITIONAL_DOCUMENT_IDS", "").split(",")
@@ -192,12 +200,78 @@ def outline_source(
 async def read_outline_image(
     client: httpx.AsyncClient, settings: OutlineImportSettings, attachment_id: UUID
 ) -> OutlineImage:
+    return await _read_redirected_image(
+        client, settings, "GET", "/api/attachments.redirect",
+        settings.api_token, params={"id": str(attachment_id)},
+    )
+
+
+def _retained_identity(reference: OutlineAssetReference) -> dict[str, str]:
+    return {
+        "documentId": str(reference.document_id),
+        "attachmentId": str(reference.attachment_id),
+        "sha256": reference.sha256,
+    }
+
+
+async def retain_outline_reference(
+    client: httpx.AsyncClient,
+    settings: OutlineImportSettings,
+    reference: OutlineAssetReference,
+) -> None:
+    if settings.retention_token is None:
+        return
+    if not settings.allows_document(reference.document_id):
+        raise HTTPException(404, "Outline source not found")
+    try:
+        response = await client.post(
+            f"{settings.origin}/api/slideAssetReferences.retain",
+            headers={"Authorization": f"Bearer {settings.retention_token}"},
+            json={
+                **_retained_identity(reference),
+                "bytes": reference.size_bytes,
+                "mediaType": reference.media_type,
+            },
+            follow_redirects=False,
+        )
+        if response.status_code == 200 and response.json() == {"success": True}:
+            return
+    except (httpx.HTTPError, ValueError):
+        pass
+    raise HTTPException(502, "Outline could not retain the original image")
+
+
+async def read_retained_outline_image(
+    client: httpx.AsyncClient,
+    settings: OutlineImportSettings,
+    reference: OutlineAssetReference,
+) -> OutlineImage:
+    if settings.retention_token is None:
+        raise HTTPException(503, "Outline retention is not configured")
+    return await _read_redirected_image(
+        client, settings, "POST", "/api/slideAssetReferences.redirect",
+        settings.retention_token, body=_retained_identity(reference),
+    )
+
+
+async def _read_redirected_image(
+    client: httpx.AsyncClient,
+    settings: OutlineImportSettings,
+    method: str,
+    path: str,
+    token: str,
+    *,
+    params: dict[str, str] | None = None,
+    body: dict[str, str] | None = None,
+) -> OutlineImage:
     try:
         async with client.stream(
-            "GET",
-            f"{settings.origin}/api/attachments.redirect",
-            params={"id": str(attachment_id)},
-            headers={"Authorization": f"Bearer {settings.api_token}"},
+            method,
+            f"{settings.origin}{path}",
+            params=params,
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+            follow_redirects=False,
         ) as response:
             if not response.is_redirect:
                 raise HTTPException(502, "Outline attachment is unavailable")
