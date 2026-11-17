@@ -59,25 +59,25 @@ async def import_outline(
     return OutlineImportResponse(presentation_id=presentation.id)
 
 
-@OUTLINE_IMPORT_ROUTER.get("/{presentation_id}/image")
+@OUTLINE_IMPORT_ROUTER.get("/{reference_id}/image")
 async def get_outline_image(
-    presentation_id: UUID,
+    reference_id: UUID,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     owner_id = get_current_owner_id()
     if owner_id is None:
         raise HTTPException(401, "Authentication required")
-    presentation = await session.get(PresentationModel, presentation_id)
-    if presentation is None or presentation.owner_id != owner_id:
-        raise HTTPException(404, "Outline image not found")
-    reference = await session.get(OutlineAssetReference, presentation_id)
+    reference = await session.get(OutlineAssetReference, reference_id)
     if reference is None:
         raise HTTPException(404, "Outline image not found")
+    presentation = await session.get(PresentationModel, reference.presentation_id)
+    if presentation is None or presentation.owner_id != owner_id:
+        raise HTTPException(404, "Outline image not found")
     settings = outline_import_settings()
-    if reference.document_id != settings.document_id or owner_id != settings.owner_id:
+    if not settings.allows_document(reference.document_id) or owner_id != settings.owner_id:
         raise HTTPException(404, "Outline image not found")
     async with httpx.AsyncClient(follow_redirects=False, timeout=15, trust_env=False) as client:
-        document = await read_outline_document(client, settings)
+        document = await read_outline_document(client, settings, reference.document_id)
         _, attachments = outline_source(document, settings)
         if reference.attachment_id not in attachments:
             raise HTTPException(404, "Outline attachment is no longer in this document")

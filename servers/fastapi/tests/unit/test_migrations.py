@@ -923,3 +923,44 @@ def test_edit_revision_migration_preserves_existing_decks(tmp_path):
     with engine.connect() as connection:
         assert connection.execute(text("SELECT id, edit_revision FROM presentations")).one() == ("existing", 0)
     engine.dispose()
+
+
+def test_outline_asset_migration_keeps_existing_url_and_allows_multiple_references(tmp_path):
+    from uuid import uuid4
+
+    database_url = f"sqlite:///{tmp_path / 'outline-reference.db'}"
+    engine = create_engine(database_url)
+    config = _alembic_config(database_url)
+    deck, attachment, document, second_reference = (uuid4().hex for _ in range(4))
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE presentations (id CHAR(32) PRIMARY KEY)"))
+            connection.execute(text("INSERT INTO presentations VALUES (:deck)"), {"deck": deck})
+        command.stamp(config, migrations.REVISION_PRESENTATION_EDIT)
+        command.upgrade(config, migrations.REVISION_OUTLINE_ASSET)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO outline_asset_references VALUES "
+                    "(:deck, :document, 1, :asset, 'digest', 5, 'image/png')"
+                ),
+                {"deck": deck, "document": document, "asset": attachment},
+            )
+        command.upgrade(config, "head")
+        with engine.begin() as connection:
+            references = text(
+                "SELECT id, attachment_id FROM outline_asset_references "
+                "WHERE presentation_id=:deck"
+            )
+            assert connection.execute(references, {"deck": deck}).all() == [(deck, attachment)]
+            connection.execute(
+                text(
+                    "INSERT INTO outline_asset_references "
+                    "(id,presentation_id,document_id,document_revision,attachment_id,sha256,size_bytes,media_type) "
+                    "VALUES (:id,:deck,:document,1,:asset,'digest',5,'image/png')"
+                ),
+                {"id": second_reference, "deck": deck, "document": document, "asset": attachment},
+            )
+            assert len(connection.execute(references, {"deck": deck}).all()) == 2
+    finally:
+        engine.dispose()

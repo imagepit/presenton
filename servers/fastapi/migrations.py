@@ -36,7 +36,8 @@ REVISION_TEMPLATE_V2_THEME = "e4c7a9b2d6f1"
 REVISION_UNIFIED_API_KEYS = "026c0ba8b35c"
 REVISION_PRESENTATION_EDIT = "ip_edit_revision"
 REVISION_OUTLINE_ASSET = "ip_outline_asset_reference"
-REVISION_HEAD = REVISION_OUTLINE_ASSET
+REVISION_OUTLINE_MULTI_IMAGE = "ip_outline_multi_image"
+REVISION_HEAD = REVISION_OUTLINE_MULTI_IMAGE
 
 
 async def migrate_database_on_startup() -> None:

@@ -36,6 +36,8 @@ COPY servers/fastapi/models/sql/outline_asset_reference.py /app/servers/fastapi/
 COPY servers/fastapi/services/outline_slide_import.py /app/servers/fastapi/services/outline_slide_import.py
 COPY servers/fastapi/alembic/env.py /app/servers/fastapi/alembic/env.py
 COPY servers/fastapi/alembic/versions/imagepit_outline_asset_reference.py /app/servers/fastapi/alembic/versions/imagepit_outline_asset_reference.py
+COPY servers/fastapi/alembic/versions/imagepit_outline_multi_image.py /app/servers/fastapi/alembic/versions/imagepit_outline_multi_image.py
+COPY servers/fastapi/scripts/rebind_outline_assets.py /app/servers/fastapi/scripts/rebind_outline_assets.py
 COPY --from=nextjs-builder /app/servers/nextjs/.next-build/standalone/ /app/servers/nextjs/
 COPY --from=nextjs-builder /app/servers/nextjs/public /app/servers/nextjs/public
 COPY --from=nextjs-builder /app/servers/nextjs/.next-build/static /app/servers/nextjs/.next-build/static

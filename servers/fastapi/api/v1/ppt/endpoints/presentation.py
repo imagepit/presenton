@@ -1603,23 +1603,27 @@ async def duplicate_presentation(
         new_presentation.title = f"{new_presentation.title} (Copy)"
     new_slides = [slide.get_new_slide(new_presentation.id) for slide in slides]
 
-    reference = await sql_session.get(OutlineAssetReference, id)
+    references = list(await sql_session.scalars(
+        select(OutlineAssetReference).where(OutlineAssetReference.presentation_id == id)
+    ))
     sql_session.add(new_presentation)
-    if reference is not None:
-        from services.outline_slide_import import outline_asset_url, replace_outline_asset
+    if references:
+        from services.outline_slide_import import outline_asset_url, replace_outline_assets
 
-        source = outline_asset_url(id)
-        destination = outline_asset_url(new_presentation.id)
-        for slide in new_slides:
-            slide.ui = replace_outline_asset(slide.ui, source, destination)
-
-        await sql_session.flush()
-        sql_session.add(
-            OutlineAssetReference(
-                **reference.model_dump(exclude={"presentation_id"}),
+        urls = {}
+        copies = []
+        for reference in references:
+            new_id = new_presentation.id if reference.id == id else uuid.uuid4()
+            urls[outline_asset_url(reference.id)] = outline_asset_url(new_id)
+            copies.append(OutlineAssetReference(
+                **reference.model_dump(exclude={"id", "presentation_id"}),
+                id=new_id,
                 presentation_id=new_presentation.id,
-            )
-        )
+            ))
+        for slide in new_slides:
+            slide.ui = replace_outline_assets(slide.ui, urls)
+        await sql_session.flush()
+        sql_session.add_all(copies)
     sql_session.add_all(new_slides)
     await sql_session.commit()
     await sql_session.refresh(new_presentation)

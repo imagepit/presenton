@@ -33,6 +33,10 @@ class OutlineImportSettings:
     owner_id: UUID
     api_token: str
     r2_host: str
+    additional_document_ids: frozenset[UUID] = frozenset()
+
+    def allows_document(self, document_id: UUID) -> bool:
+        return document_id == self.document_id or document_id in self.additional_document_ids
 
     @property
     def origin(self) -> str:
@@ -98,6 +102,11 @@ def outline_import_settings() -> OutlineImportSettings:
             owner_id=UUID(os.environ["OUTLINE_IMPORT_OWNER_ID"]),
             api_token=token,
             r2_host=r2_host,
+            additional_document_ids=frozenset(
+                UUID(value.strip())
+                for value in os.getenv("OUTLINE_IMPORT_ADDITIONAL_DOCUMENT_IDS", "").split(",")
+                if value.strip()
+            ),
         )
     except (KeyError, ValueError):
         raise HTTPException(503, "Outline import is not configured") from None
@@ -113,8 +122,13 @@ async def _read_bounded(response: httpx.Response, limit: int) -> bytes:
 
 
 async def read_outline_document(
-    client: httpx.AsyncClient, settings: OutlineImportSettings
+    client: httpx.AsyncClient,
+    settings: OutlineImportSettings,
+    document_id: UUID | None = None,
 ) -> OutlineDocument:
+    document_id = document_id or settings.document_id
+    if not settings.allows_document(document_id):
+        raise HTTPException(404, "Outline source not found")
     try:
         async with client.stream(
             "POST",
@@ -123,7 +137,7 @@ async def read_outline_document(
                 "Authorization": f"Bearer {settings.api_token}",
                 "X-API-Version": "3",
             },
-            json={"id": str(settings.document_id)},
+            json={"id": str(document_id)},
         ) as response:
             if response.status_code != 200:
                 raise HTTPException(502, "Outline document is unavailable")
@@ -131,7 +145,7 @@ async def read_outline_document(
         document = OutlineDocumentResponse.model_validate_json(body).data.document
     except (httpx.HTTPError, ValidationError):
         raise HTTPException(502, "Unable to read the Outline document") from None
-    if document.id != settings.document_id:
+    if document.id != document_id:
         raise HTTPException(502, "Outline returned an unexpected document")
     return document
 
@@ -248,8 +262,8 @@ async def summarize_outline(document: OutlineDocument, body: str) -> str:
         raise HTTPException(502, "Outline slide generation returned no summary") from None
 
 
-def outline_asset_url(presentation_id: UUID) -> str:
-    return f"{ASSET_PREFIX}/{presentation_id}/image"
+def outline_asset_url(reference_id: UUID) -> str:
+    return f"{ASSET_PREFIX}/{reference_id}/image"
 
 
 def build_outline_deck(
@@ -300,6 +314,7 @@ def build_outline_deck(
         },
     )
     reference = OutlineAssetReference(
+        id=presentation.id,
         presentation_id=presentation.id,
         document_id=document.id,
         document_revision=document.revision,
@@ -311,12 +326,12 @@ def build_outline_deck(
     return presentation, slide, reference
 
 
-def replace_outline_asset(value, source: str, destination: str):
+def replace_outline_assets(value, urls: dict[str, str]):
     if isinstance(value, list):
-        return [replace_outline_asset(item, source, destination) for item in value]
+        return [replace_outline_assets(item, urls) for item in value]
     if isinstance(value, dict):
         return {
-            key: replace_outline_asset(item, source, destination)
+            key: replace_outline_assets(item, urls)
             for key, item in value.items()
         }
-    return destination if value == source else value
+    return urls.get(value, value) if isinstance(value, str) else value
