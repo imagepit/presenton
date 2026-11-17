@@ -57,6 +57,7 @@ from utils.llm_calls.generate_presentation_outlines import (
     generate_ppt_outline,
     get_messages as get_outline_messages,
 )
+from models.sql.outline_asset_reference import OutlineAssetReference
 from models.sql.slide import SlideModel
 from services.slide_service import require_revision, claim_revision, discard_revision_claims
 from models.sse_response import (
@@ -1602,7 +1603,23 @@ async def duplicate_presentation(
         new_presentation.title = f"{new_presentation.title} (Copy)"
     new_slides = [slide.get_new_slide(new_presentation.id) for slide in slides]
 
+    reference = await sql_session.get(OutlineAssetReference, id)
     sql_session.add(new_presentation)
+    if reference is not None:
+        from services.outline_slide_import import outline_asset_url, replace_outline_asset
+
+        source = outline_asset_url(id)
+        destination = outline_asset_url(new_presentation.id)
+        for slide in new_slides:
+            slide.ui = replace_outline_asset(slide.ui, source, destination)
+
+        await sql_session.flush()
+        sql_session.add(
+            OutlineAssetReference(
+                **reference.model_dump(exclude={"presentation_id"}),
+                presentation_id=new_presentation.id,
+            )
+        )
     sql_session.add_all(new_slides)
     await sql_session.commit()
     await sql_session.refresh(new_presentation)

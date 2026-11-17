@@ -17,6 +17,7 @@ from models.sql.chat_history_message import ChatHistoryMessageModel
 from models.sql.font_upload import FontUpload
 from models.sql.api_key import ApiKey
 from models.sql.image_asset import ImageAsset
+from models.sql.outline_asset_reference import OutlineAssetReference
 from models.sql.key_value import KeyValueSqlModel
 from models.sql.ollama_pull_status import OllamaPullStatus
 from models.sql.presentation import PresentationModel
@@ -138,6 +139,7 @@ async def create_db_and_tables():
                         TemplateV2.__table__,
                         ChatHistoryMessageModel.__table__,
                         ImageAsset.__table__,
+                        OutlineAssetReference.__table__,
                         FontUpload.__table__,
                         WebhookSubscription.__table__,
                         AsyncTaskModel.__table__,
