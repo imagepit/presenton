@@ -44,11 +44,13 @@ def test_import_saves_only_reference_and_requires_deck_owner(tmp_path, monkeypat
                 200,
                 json={
                     "data": {
-                        "id": str(doc_id),
-                        "title": "元ページ",
-                        "language": "ja",
-                        "revision": 1,
-                        "data": {"type": "doc", "content": blocks},
+                        "document": {
+                            "id": str(doc_id),
+                            "title": "元ページ",
+                            "language": "ja",
+                            "revision": 1,
+                            "data": {"type": "doc", "content": blocks},
+                        }
                     }
                 },
             )

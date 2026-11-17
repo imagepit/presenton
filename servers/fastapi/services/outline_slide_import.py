@@ -55,8 +55,12 @@ class OutlineDocument(BaseModel):
     data: OutlineNode
 
 
+class OutlineDocumentPayload(BaseModel):
+    document: OutlineDocument
+
+
 class OutlineDocumentResponse(BaseModel):
-    data: OutlineDocument
+    data: OutlineDocumentPayload
 
 
 @dataclass(frozen=True)
@@ -124,7 +128,7 @@ async def read_outline_document(
             if response.status_code != 200:
                 raise HTTPException(502, "Outline document is unavailable")
             body = await _read_bounded(response, MAX_DOCUMENT_BYTES)
-        document = OutlineDocumentResponse.model_validate_json(body).data
+        document = OutlineDocumentResponse.model_validate_json(body).data.document
     except (httpx.HTTPError, ValidationError):
         raise HTTPException(502, "Unable to read the Outline document") from None
     if document.id != settings.document_id:
