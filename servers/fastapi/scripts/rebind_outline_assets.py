@@ -22,6 +22,7 @@ from services.outline_slide_import import (
     read_outline_document,
     read_outline_image,
     replace_outline_assets,
+    retain_outline_reference,
 )
 from services.slide_service import load_deck_slides
 
@@ -93,7 +94,7 @@ def select_original(url, originals):
     return attachment, image
 
 
-async def prepare_target(session, client, settings, target, semaphore):
+async def prepare_target(session, client, settings, target, semaphore, apply):
     presentation, slides = await load_deck_slides(session, target.deck_id)
     if presentation.owner_id != settings.owner_id:
         raise ValueError("Deck does not belong to the configured Outline importer")
@@ -149,6 +150,8 @@ async def prepare_target(session, client, settings, target, semaphore):
             size_bytes=len(image.content),
             media_type=image.media_type,
         )
+        if apply:
+            await retain_outline_reference(client, settings, reference)
         session.add(reference)
         replacements[url] = outline_asset_url(reference.id)
 
@@ -168,7 +171,7 @@ async def run(targets, apply):
         ) as client:
             with session.no_autoflush:
                 for target in targets:
-                    await prepare_target(session, client, settings, target, semaphore)
+                    await prepare_target(session, client, settings, target, semaphore, apply)
             if apply:
                 await session.commit()
                 print("Committed all deck changes")
