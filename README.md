@@ -1008,6 +1008,16 @@ Track the public roadmap on GitHub Projects: [https://github.com/orgs/presenton/
 `slide_001.png`、`slide_002.png` の順に収めたZIPをダウンロードできます。
 PDF・PPTXも同じメニューから選べます。
 
+## Presentonの画像保存とバックアップ範囲
+
+Presentonに直接アップロードした画像と生成した画像は、利用者別にPVCの `/app_data/images/users/<owner-id>/` へ保存します。SQLiteの `imageasset` に所有者、ファイルパス、アップロード画像かどうかを記録します。現在の単一Podではこの保存方式を継続します。Outline由来の画像は [CORE-180](https://plane.itpit.net/imagepit/browse/CORE-180/) の固定参照で、Outlineの非公開R2原本を読み出します。
+
+[CORE-175](https://plane.itpit.net/imagepit/browse/CORE-175/) では、2026年11月18日にmbp16本番と同じイメージを別PVCで起動しました。本番APIでGPT Image 2の検証画像を1枚生成し、隔離環境の生成APIにはその応答を再現しました。アップロード画像と生成画像を同じデッキに保存し、Pod再作成後もURLと画像のSHA-256が一致し、編集画面に表示されることを確認しました。別ユーザーの画像URL取得はどちらも403で、画像一覧にも表示されませんでした。
+
+PDFとPPTXには両方の画像が入りました。PNGは初回に生成画像が抜け、同じデッキとイメージで6回再出力した結果はすべて両方の画像が入りました。PNGの初回欠落は原因未特定です。
+
+[CORE-176](https://plane.itpit.net/imagepit/browse/CORE-176/) ではSQLiteとこのPVCの画像・テンプレートを整合した状態で退避し、別PVCへ復元します。Outline由来のデッキはPresentonの画像参照と、Outline側の原本・保持台帳から復元後の表示を検証します。ノード外の非公開保管先としてR2を候補に含めます。
+
 ## IMAGEPITの編集版と競合処理
 
 デッキ取得APIが返す `edit_revision` は編集内容の版です。保存形式を示す `version` と独立して管理します。既存デッキは起動時のAlembic移行で0から開始します。
