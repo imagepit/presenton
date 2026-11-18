@@ -59,7 +59,7 @@ def test_import_saves_only_reference_and_requires_deck_owner(tmp_path, monkeypat
                 "bytes": len(png),
                 "mediaType": "image/png",
             }
-            return httpx.Response(200, json={"success": True})
+            return httpx.Response(200, json={"status": 200, "success": True})
         assert request.headers["authorization"] == "Bearer test-outline-token"
         if request.url.path == "/api/documents.info":
             document_reads.append(request.url.path)

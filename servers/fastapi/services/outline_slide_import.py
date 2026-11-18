@@ -234,8 +234,10 @@ async def retain_outline_reference(
             },
             follow_redirects=False,
         )
-        if response.status_code == 200 and response.json() == {"success": True}:
-            return
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, dict) and result.get("success") is True:
+                return
     except (httpx.HTTPError, ValueError):
         pass
     raise HTTPException(502, "Outline could not retain the original image")
